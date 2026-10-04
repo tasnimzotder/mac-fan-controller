@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Test and package Apple Silicon app
+    runs-on: macos-15
+    timeout-minutes: 20
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Validate release version
+        run: python3 tools/release-metadata.py --check-version
+      - name: Verify release tooling
+        run: python3 -m unittest discover -s tests-release -v
+      - name: Test Swift core
+        run: swift test -Xswiftc -warnings-as-errors
+      - name: Build and verify app and DMG
+        run: |
+          set -euo pipefail
+          make dmg
+          python3 tools/verify-bundle.py
+      - name: Validate generated Homebrew cask
+        env:
+          RELEASE_REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          python3 tools/release-metadata.py --repository "$RELEASE_REPOSITORY"
+          ruby -c dist/mac-fan-controller.rb
+          brew style dist/mac-fan-controller.rb
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mac-fan-controller-ci-${{ github.run_id }}
+          path: |
+            dist/*.dmg
+            dist/mac-fan-controller.rb
+            dist/SHA256SUMS
+            dist/release.json
+          if-no-files-found: error
+          retention-days: 7
