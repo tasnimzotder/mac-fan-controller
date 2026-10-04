@@ -9,6 +9,10 @@ on:
         description: Existing release tag to build (must match VERSION at that tag)
         required: true
         type: string
+      tap_only:
+        description: Update only Homebrew from an existing published release
+        type: boolean
+        default: false
 
 concurrency:
   group: release-${{ inputs.tag || github.ref_name }}
@@ -22,6 +26,7 @@ env:
 
 jobs:
   build:
+    if: ${{ !inputs.tap_only }}
     name: Verify and build release
     runs-on: macos-15
     timeout-minutes: 20
@@ -84,6 +89,7 @@ jobs:
           retention-days: 30
 
   publish:
+    if: ${{ !inputs.tap_only }}
     name: Publish GitHub release
     runs-on: ubuntu-latest
     needs: build
@@ -109,6 +115,7 @@ jobs:
           gh release create "$RELEASE_TAG" ./*.dmg SHA256SUMS mac-fan-controller.rb release.json "${args[@]}"
 
   homebrew:
+    if: ${{ always() && (inputs.tap_only || (needs.build.result == 'success' && needs.publish.result == 'success')) }}
     name: Update Homebrew tap
     runs-on: macos-15
     needs: [build, publish]
@@ -132,22 +139,32 @@ jobs:
           repository: tasnimzotder/homebrew-tap
           token: ${{ secrets.TAP_TOKEN }}
           path: homebrew-tap
-      - uses: actions/download-artifact@v4
-        with:
-          name: release-assets
-          path: dist
       - name: Verify published asset matches the cask
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          DMG_NAME: ${{ needs.build.outputs.dmg_name }}
-          EXPECTED_SHA256: ${{ needs.build.outputs.sha256 }}
         run: |
           set -euo pipefail
-          gh release download "$RELEASE_TAG" --pattern "$DMG_NAME" --dir published
-          actual_sha=$(shasum -a 256 "published/$DMG_NAME" | awk '{print $1}')
-          test "$actual_sha" = "$EXPECTED_SHA256"
-          grep -F "sha256 \"$EXPECTED_SHA256\"" dist/mac-fan-controller.rb
+          gh release download "$RELEASE_TAG" --dir dist
+          python3 - <<'PY'
+          import hashlib, json, os, re
+          from pathlib import Path
+          root = Path('dist')
+          metadata = json.loads((root / 'release.json').read_text())
+          tag = os.environ['RELEASE_TAG']
+          assert re.fullmatch(r'v[0-9]+\.[0-9]+\.[0-9]+(?:-[A-Za-z0-9.-]+)?', tag)
+          name = f'MacFanController_{tag}_aarch64.dmg'
+          assert metadata['tag'] == tag and metadata['dmg_name'] == name
+          assert metadata['repository'] == os.environ['GH_REPO']
+          sha = hashlib.sha256((root / name).read_bytes()).hexdigest()
+          assert sha == metadata['sha256']
+          assert (root / 'SHA256SUMS').read_text() == f'{sha}  {name}\n'
+          cask = (root / 'mac-fan-controller.rb').read_text()
+          assert f'sha256 "{sha}"' in cask and f'version "{tag[1:]}"' in cask
+          # Normalize old release casks to the current equivalent Homebrew syntax.
+          cask = cask.replace('depends_on macos: ">= :ventura"', 'depends_on macos: :ventura')
+          (root / 'mac-fan-controller.rb').write_text(cask)
+          PY
       - name: Validate and update cask
         run: |
           set -euo pipefail
