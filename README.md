@@ -75,3 +75,7 @@ Local rebuilds can set `MFC_BUILD_NUMBER` to a distinct numeric bundle version w
 ## License
 
 MIT. Existing implementations were consulted for protocol behavior and architecture, as recorded in the research note; their code is not bundled.
+
+### Safe local app updates
+
+Quit the GUI and run the **installed** app with `--prepare-update` before replacing its bundle. This verifies Apple automatic state and awaits helper unregistration. After installing, run the installed app with `--repair-helper` as the logged-in user; approve macOS background-item prompts if required. Development and backup bundles cannot manage helper/login-item registration, preventing them from replacing the installed app's BTM association.

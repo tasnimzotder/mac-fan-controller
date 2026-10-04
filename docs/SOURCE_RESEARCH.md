@@ -24,3 +24,13 @@ Reviewed live on 2026-10-04:
 - [Control Guru: integral windup](https://controlguru.com/integral-reset-windup-jacketing-logic-and-the-velocity-pi-form/): prevent accumulation while actuator output is constrained. We condition integration on saturation/ramp limits and allow unwinding.
 
 MathWorks returned HTTP 403 and was not used as evidence. Apple forum responses were not readable; forum claims were not treated as verified guidance. CONTROL.md gains are engineering starting values, not values established by these sources.
+
+## Confirmed local registration repair, 2026-10-05
+
+`proc_pidpath` showed the running root helper came from the development `dist` bundle; `sfltool dumpbtm` also associated the app identifier with that copy. Development and installed apps share identifiers. Service Management status/registration calls from a development copy can therefore disturb the installed app association.
+
+GUI helper/login-item management and maintenance registration/unregistration now reject bundles outside `/Applications/Mac Fan Controller.app`. Demo initialization skips login-item status queries. The read-only probe and administrator-only emergency automatic restoration remain available independently of registration.
+
+Repair completed by verifying automatic fan state, awaiting unregistration from the installed app, installing build 0.1.7, removing the obsolete development bundle path/association, and registering from Applications. Both root and shared BTM app records now point to Applications. `proc_pidpath` confirmed the UID-0 helper executes from the installed bundle.
+
+Authenticated hardware verification passed for all four presets. Fan-1 targets were Quiet 1350, Balanced 1649, Performance 2235 and Turbo 5349 RPM; fan-2 Turbo target was 5777 RPM. Turbo measured speeds settled to approximately 5355/5766 RPM. Final independent reads confirmed modes 3, targets 0 and Ftst=0. These short functional tests verify preset application and restoration; sustained-load PID calibration and native graph layout remain separate validation tasks.

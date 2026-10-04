@@ -40,7 +40,7 @@ import SwiftUI
       storage = try Storage(path: base + "/" + (demo ? "demo.sqlite3" : "fan-controller.sqlite3"))
       settings = try storage!.settings()
     } catch { self.error = error.localizedDescription }
-    loginEnabled = SMAppService.mainApp.status == .enabled
+    loginEnabled = !demo && InstalledApp.isCurrentBundleInstalled && SMAppService.mainApp.status == .enabled
     refreshHelperStatus()
     sleepObserver = NSWorkspace.shared.notificationCenter.addObserver(
       forName: NSWorkspace.willSleepNotification, object: nil, queue: .main
@@ -62,7 +62,7 @@ import SwiftUI
       Task { @MainActor in
         self?.sleeping = false
         self?.mode = .automatic
-        if self?.recoveryUnconfirmed == true && self?.service.status == .enabled {
+        if self?.recoveryUnconfirmed == true && InstalledApp.isCurrentBundleInstalled && self?.service.status == .enabled {
           self?.setMode(.automatic)
         }
         self?.poll()
@@ -92,6 +92,10 @@ import SwiftUI
       helperStatus = "Demo · simulated hardware"
       return
     }
+    guard InstalledApp.isCurrentBundleInstalled else {
+      helperStatus = "Install app in Applications"
+      return
+    }
     switch service.status {
     case .enabled: helperStatus = helperResponding ? "Connected" : "Registered · connection unverified"
     case .requiresApproval: helperStatus = "Approval needed in System Settings"
@@ -102,6 +106,10 @@ import SwiftUI
   }
   func installHelper() {
     guard !demo, !busy, !pending else { return }
+    guard InstalledApp.isCurrentBundleInstalled else {
+      error = "Install the app in /Applications before enabling its helper."
+      return
+    }
     do {
       if service.status != .enabled { try service.register() }
       refreshHelperStatus()
@@ -122,6 +130,7 @@ import SwiftUI
     }
   }
   func uninstallHelper() {
+    guard InstalledApp.isCurrentBundleInstalled, !demo else { return }
     setMode(.automatic) { [weak self] success in
       guard let self, success else { return }
       self.busy = true
@@ -140,12 +149,13 @@ import SwiftUI
   }
   func setLogin(_ enabled: Bool) {
     do {
+      try InstalledApp.requireInstalledBundle()
       if enabled {
         try SMAppService.mainApp.register()
       } else {
         try SMAppService.mainApp.unregister()
       }
-      loginEnabled = SMAppService.mainApp.status == .enabled
+      loginEnabled = !demo && InstalledApp.isCurrentBundleInstalled && SMAppService.mainApp.status == .enabled
     } catch { self.error = error.localizedDescription }
   }
   func saveSettings() {
@@ -164,6 +174,13 @@ import SwiftUI
     }
     guard !busy, !pending else {
       completion?(false)
+      return
+    }
+    guard InstalledApp.isCurrentBundleInstalled else {
+      if value == .automatic { completion?(true) } else {
+        error = "Install the app in /Applications before controlling fans."
+        completion?(false)
+      }
       return
     }
     if value != .automatic {
@@ -318,7 +335,7 @@ import SwiftUI
     guard !sleeping else { return }
     if mode != .automatic && !pending && !demo {
       send(.init(mode: mode, fractions: manualFractions()))
-    } else if recoveryUnconfirmed && !pending && !demo && service.status == .enabled {
+    } else if recoveryUnconfirmed && !pending && !demo && InstalledApp.isCurrentBundleInstalled && service.status == .enabled {
       send(.init(mode: .automatic, statusOnly: true))
     }
     if demo {

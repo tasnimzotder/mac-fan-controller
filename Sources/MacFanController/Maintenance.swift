@@ -6,6 +6,10 @@ import ServiceManagement
 @MainActor enum Maintenance {
   /// Exercise the authenticated helper for twenty seconds, then explicitly release control.
   static func verifyPerformance(presets: Bool = false) {
+    do { try InstalledApp.requireInstalledBundle() } catch {
+      fputs("\(error.localizedDescription)\n", stderr)
+      exit(1)
+    }
     guard NSRunningApplication.runningApplications(
       withBundleIdentifier: "com.tasnimzotder.mac-fan-controller"
     ).allSatisfy({ $0.processIdentifier == ProcessInfo.processInfo.processIdentifier }),
@@ -102,6 +106,7 @@ import ServiceManagement
   static func repairHelper(register: Bool = true) {
     Task { @MainActor in
       do {
+        try InstalledApp.requireInstalledBundle()
         guard NSRunningApplication.runningApplications(
           withBundleIdentifier: "com.tasnimzotder.mac-fan-controller"
         ).allSatisfy({ $0.processIdentifier == ProcessInfo.processInfo.processIdentifier }) else {
@@ -141,6 +146,10 @@ import ServiceManagement
   }
 
   static func unregisterHelper() {
+    do { try InstalledApp.requireInstalledBundle() } catch {
+      fputs("\(error.localizedDescription)\n", stderr)
+      exit(1)
+    }
     let service = SMAppService.daemon(plistName: helperLabel + ".plist")
     guard service.status != .notRegistered && service.status != .notFound else {
       print("Fan helper is not registered.")
