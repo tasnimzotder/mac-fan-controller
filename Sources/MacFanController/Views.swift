@@ -124,7 +124,7 @@ struct ContentView: View {
                 model.mode == mode && !model.recoveryUnconfirmed ? [.isSelected] : [])
           }
         }
-        if !model.demo && model.helperStatus != "Enabled" && model.snapshot?.fans.isEmpty == false {
+        if !model.demo && !model.helperRegistered && model.snapshot?.fans.isEmpty == false {
           Button("Enable fan control in Settings") { tab = 2 }
             .font(.caption).buttonStyle(.link)
         }
@@ -205,7 +205,7 @@ struct ContentView: View {
   }
   private var controlReady: Bool {
     if model.demo { return true }
-    guard model.helperStatus == "Enabled", let snapshot = model.snapshot else { return false }
+    guard model.helperRegistered, let snapshot = model.snapshot else { return false }
     return !snapshot.fans.isEmpty && snapshot.fans.allSatisfy(\.controllable)
       && snapshot.completeSensorReadings && snapshot.hottest != nil
   }
@@ -406,10 +406,10 @@ struct ContentView: View {
       Text("Fan-control helper").font(.headline)
       Label(
         model.helperStatus,
-        systemImage: model.helperStatus == "Enabled" ? "checkmark.shield" : "shield.lefthalf.filled"
+        systemImage: model.helperRegistered ? "checkmark.shield" : "shield.lefthalf.filled"
       )
       .font(.caption.weight(.medium))
-      .foregroundStyle(model.helperStatus == "Enabled" ? Color.mint : Color.secondary)
+      .foregroundStyle(model.helperRegistered ? Color.mint : Color.secondary)
       .padding(10).frame(maxWidth: .infinity, alignment: .leading)
       .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 10))
       Text(
@@ -419,7 +419,7 @@ struct ContentView: View {
         Button("Enable helper") { model.installHelper() }.disabled(
           model.demo || model.busy || model.snapshot?.fans.isEmpty == true)
         Button("Remove helper") { model.uninstallHelper() }.disabled(
-          model.demo || model.helperStatus != "Enabled" || model.busy)
+          model.demo || !model.helperRegistered || model.busy)
       }
       Text("Every launch starts in Apple automatic. Use one fan-control app at a time.").font(
         .caption

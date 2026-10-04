@@ -21,6 +21,7 @@ import SwiftUI
   private var storage: Storage?
   private var connection: NSXPCConnection?
   private var timer: Timer?
+  @Published private(set) var helperRegistered = false
   private var helperResponding = false
   private var pending = false
   private var lastRecord = Date.distantPast
@@ -88,6 +89,7 @@ import SwiftUI
     self.timer = timer
   }
   func refreshHelperStatus() {
+    helperRegistered = !demo && InstalledApp.isCurrentBundleInstalled && service.status == .enabled
     if demo {
       helperStatus = "Demo · simulated hardware"
       return
