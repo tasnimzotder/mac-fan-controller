@@ -20,7 +20,7 @@ struct ContentView: View {
               ? "Demo · simulated readings"
               : (model.recoveryUnconfirmed
                 ? "Apple-control recovery unconfirmed"
-                : (model.busy ? "Requesting control…" : model.mode.title))
+            : (model.busy ? model.controlProgress : model.mode.title))
           ).font(.caption)
             .foregroundStyle(.secondary)
         }
@@ -30,7 +30,7 @@ struct ContentView: View {
             ? "Demo"
             : (model.recoveryUnconfirmed
               ? "Check helper"
-              : (model.busy ? "Connecting" : (model.snapshot == nil ? "Waiting" : "Live"))),
+            : (model.busy ? "Updating" : (model.snapshot == nil ? "Waiting" : "Live"))),
           systemImage: model.demo ? "play.rectangle" : (model.busy ? "clock" : "waveform.path")
         )
         .font(.caption2.weight(.medium)).foregroundStyle(.secondary)
@@ -140,7 +140,7 @@ struct ContentView: View {
             ? "The helper has not confirmed recovery. Retry Apple automatic to verify fan state."
             : modeDescription
         ).font(.caption).foregroundStyle(.secondary)
-        if model.busy { ProgressView("Requesting fan control…").controlSize(.small) }
+        if model.busy { ProgressView(model.controlProgress).controlSize(.small) }
       }
       ForEach(model.snapshot?.fans ?? []) { fan in
         VStack(alignment: .leading, spacing: 8) {

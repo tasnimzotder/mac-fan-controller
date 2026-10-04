@@ -11,6 +11,7 @@ import SwiftUI
   @Published var error: String?
   @Published var helperStatus = "Not installed"
   @Published var busy = false
+  @Published private(set) var controlProgress = "Requesting fan control…"
   @Published var recoveryUnconfirmed = false
   private var requestFailure: ((String) -> Void)?
   @Published var loginEnabled = false
@@ -101,8 +102,9 @@ import SwiftUI
       if service.status != .enabled { try service.register() }
       refreshHelperStatus()
       if service.status == .requiresApproval { SMAppService.openSystemSettingsLoginItems() }
-      if service.status == .enabled {
-        busy = true
+    if service.status == .enabled {
+      controlProgress = "Connecting to helper…"
+      busy = true
         send(.init(mode: .automatic))
       }
     } catch { self.error = error.localizedDescription }
@@ -176,6 +178,8 @@ import SwiftUI
       completion?(true)
       return
     }
+    controlProgress = value == .automatic ? "Returning to Apple automatic…"
+      : (mode == .automatic ? "Requesting fan control…" : "Applying preset…")
     busy = true
     send(.init(mode: value, fractions: manualFractions()), completion: completion)
   }
