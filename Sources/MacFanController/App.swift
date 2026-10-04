@@ -4,6 +4,10 @@ import SwiftUI
 
 @main struct MacFanApplication {
   @MainActor static func main() {
+    if CommandLine.arguments.contains("--verify-presets") {
+      Maintenance.verifyPerformance(presets: true)
+      return
+    }
     if CommandLine.arguments.contains("--verify-performance") {
       Maintenance.verifyPerformance()
       return

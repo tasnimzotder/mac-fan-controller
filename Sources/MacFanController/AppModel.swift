@@ -8,6 +8,7 @@ import SwiftUI
   @Published var settings = Settings()
   @Published var mode = ControlMode.automatic
   @Published var history: [HistoryPoint] = []
+  @Published var historyHours = 1
   @Published var error: String?
   @Published var helperStatus = "Not installed"
   @Published var busy = false
@@ -79,9 +80,11 @@ import SwiftUI
       }
     }
     poll()
-    timer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
+    let timer = Timer(timeInterval: 2, repeats: true) { [weak self] _ in
       Task { @MainActor in self?.poll() }
     }
+    RunLoop.main.add(timer, forMode: .common)
+    self.timer = timer
   }
   func refreshHelperStatus() {
     if demo {
@@ -133,6 +136,8 @@ import SwiftUI
   func saveSettings() {
     do {
       try storage?.save(settings)
+      historyHours = min(historyHours, settings.historyDays * 24)
+      loadHistory()
       onUpdate?()
     } catch { self.error = error.localizedDescription }
   }
@@ -178,6 +183,7 @@ import SwiftUI
       completion?(true)
       return
     }
+    if !recoveryUnconfirmed { error = nil }
     controlProgress = value == .automatic ? "Returning to Apple automatic…"
       : (mode == .automatic ? "Requesting fan control…" : "Applying preset…")
     busy = true
@@ -188,6 +194,11 @@ import SwiftUI
       let i = settings.syncFans ? 0 : index
       return settings.manualFractions.indices.contains(i) ? settings.manualFractions[i] : 0.5
     }
+  }
+  func cancelControlRequest() {
+    guard busy else { return }
+    requestFailure?("Control request cancelled; awaiting Apple-control recovery.")
+    connection?.invalidate()
   }
   func updateManual() {
     saveSettings()
@@ -283,7 +294,7 @@ import SwiftUI
   private var reading = false
   func poll() {
     refreshHelperStatus()
-    guard !sleeping, !reading else { return }
+    guard !sleeping else { return }
     if mode != .automatic && !pending && !demo {
       send(.init(mode: mode, fractions: manualFractions()))
     } else if recoveryUnconfirmed && !pending && !demo && service.status == .enabled {
@@ -300,6 +311,7 @@ import SwiftUI
       accept(s)
       return
     }
+    guard !reading else { return }
     reading = true
     monitor.read { [weak self] result in
       Task { @MainActor in
@@ -322,13 +334,18 @@ import SwiftUI
       lastRecord = Date()
       do {
         try storage?.record(s, retentionDays: settings.historyDays)
-        history =
-          try storage?.history(
-            since: Date().addingTimeInterval(-86400 * Double(settings.historyDays))) ?? []
+        loadHistory()
       } catch { self.error = error.localizedDescription }
     }
     onUpdate?()
   }
+  func loadHistory() {
+    do {
+      history = try storage?.history(
+        since: Date().addingTimeInterval(-3600 * Double(historyHours))) ?? []
+    } catch { self.error = error.localizedDescription }
+  }
+
   var trayTitle: String {
     var parts: [String] = []
     if settings.showTemperature {

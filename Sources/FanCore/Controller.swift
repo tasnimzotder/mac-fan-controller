@@ -15,9 +15,10 @@ public struct FanController {
   public static func curve(_ mode: ControlMode) -> [CurvePoint] {
     let values: [(Double, Double)]
     switch mode {
-    case .performance: values = [(40, 0), (50, 0.20), (60, 0.45), (70, 0.70), (80, 1)]
-    case .balanced: values = [(45, 0), (60, 0.20), (70, 0.45), (80, 0.75), (90, 1)]
+    case .performance: values = [(40, 0.15), (50, 0.30), (60, 0.55), (70, 0.80), (80, 1)]
+    case .balanced: values = [(40, 0.05), (50, 0.10), (60, 0.25), (70, 0.50), (80, 0.75), (90, 1)]
     case .quiet: values = [(50, 0), (65, 0.15), (75, 0.35), (85, 0.70), (92, 1)]
+    case .turbo: values = [(0, 1), (125, 1)]
     default: values = [(40, 0), (80, 1)]
     }
     return values.map { CurvePoint(temperature: $0.0, fraction: $0.1) }
@@ -54,7 +55,8 @@ public struct FanController {
     else {
       throw FanError("Temperature readings unavailable or stale; returning to Apple automatic.")
     }
-    if previousMode != mode {
+    let changedMode = previousMode != mode
+    if changedMode {
       reset()
       previousMode = mode
     }
@@ -86,8 +88,10 @@ public struct FanController {
       let desired = emergency ? fan.maximum : fan.minimum + (fan.maximum - fan.minimum) * amount
       let previous = lastTargets[fan.id] ?? max(fan.minimum, fan.rpm)
       var target = desired
-      if !emergency {
-        if desired < previous - 150 {
+      if !emergency && mode != .turbo {
+        if changedMode && desired <= previous {
+          target = desired
+        } else if desired < previous - 150 {
           if coolingSince[fan.id] == nil { coolingSince[fan.id] = snapshot.date }
           if snapshot.date.timeIntervalSince(coolingSince[fan.id]!) < 15 {
             target = previous
@@ -99,7 +103,7 @@ public struct FanController {
           target = min(desired, previous + 1200 * dt)
         } else {
           coolingSince[fan.id] = nil
-          target = previous
+          target = changedMode ? desired : previous
         }
       }
       targets[fan.id] = min(fan.maximum, max(fan.minimum, target.rounded()))

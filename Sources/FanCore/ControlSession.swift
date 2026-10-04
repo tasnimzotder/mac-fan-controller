@@ -54,7 +54,6 @@ public final class ControlSession {
           throw FanError("Invalid manual targets.")
         }
       }
-      if request.mode != self.request.mode { controller.reset() }
       self.request = request
       lastHeartbeat = uptime
       // Validate inputs before marking ownership or writing anything.

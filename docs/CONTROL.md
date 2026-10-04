@@ -13,9 +13,11 @@ Apple automatic is the startup default. Selecting a preset or manual mode explic
 
 | Preset | Temperature to fan-range fraction |
 | --- | --- |
-| Performance | 40°C:0%, 50°C:20%, 60°C:45%, 70°C:70%, 80°C:100% |
-| Balanced | 45°C:0%, 60°C:20%, 70°C:45%, 80°C:75%, 90°C:100% |
+| Performance | 40°C:15%, 50°C:30%, 60°C:55%, 70°C:80%, 80°C:100% |
+| Balanced | 40°C:5%, 50°C:10%, 60°C:25%, 70°C:50%, 80°C:75%, 90°C:100% |
 | Quiet | 50°C:0%, 65°C:15%, 75°C:35%, 85°C:70%, 92°C:100% |
+
+Turbo requests every fan's hardware maximum immediately. Selecting another preset applies its lower target immediately; temperature-driven reductions within a preset keep the cooling hold and gradual ramp-down.
 
 These are initial engineering parameters, not calibrated hardware limits or an Apple recommendation. Performance mode intentionally makes more noise and spends more fan power. A closed-loop PID without identified thermal dynamics would add tuning uncertainty; a bounded curve is easier to validate for this first version. Manual targets remain between hardware minimum and maximum; a zero fraction means minimum RPM, not a stopped fan. Apple automatic may stop fans at idle.
 

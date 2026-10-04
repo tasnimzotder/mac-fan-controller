@@ -2,7 +2,7 @@ import Foundation
 
 public let helperLabel = "com.tasnimzotder.mac-fan-controller.helper"
 public enum ControlMode: String, Codable, CaseIterable {
-  case automatic, performance, balanced, quiet, manual
+  case automatic, performance, balanced, quiet, turbo, manual
   public var title: String { self == .automatic ? "Apple automatic" : rawValue.capitalized }
 }
 public struct Fan: Codable, Identifiable, Equatable {

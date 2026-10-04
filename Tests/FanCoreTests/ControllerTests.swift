@@ -3,6 +3,32 @@ import XCTest
 @testable import FanCore
 
 final class ControllerTests: XCTestCase {
+  func testIdlePresetsRequestDifferentSpeeds() throws {
+    let date = Date()
+    var results: [ControlMode: [Int: Double]] = [:]
+    for mode in [ControlMode.quiet, .balanced, .performance] {
+      var controller = FanController()
+      results[mode] = try XCTUnwrap(controller.targets(sample(43, at: date), mode: mode, now: date))
+    }
+    for fan in fans {
+      XCTAssertGreaterThan(results[.performance]![fan.id]!, results[.balanced]![fan.id]!)
+      XCTAssertGreaterThan(results[.balanced]![fan.id]!, results[.quiet]![fan.id]!)
+    }
+  }
+  func testTurboImmediatelyUsesEachFansMaximum() throws {
+    var controller = FanController()
+    let date = Date()
+    let targets = try XCTUnwrap(controller.targets(sample(40, at: date), mode: .turbo, now: date))
+    for fan in fans { XCTAssertEqual(targets[fan.id], fan.maximum) }
+    let later = date.addingTimeInterval(1)
+    let quiet = try XCTUnwrap(controller.targets(sample(40, at: later), mode: .quiet, now: later))
+    for fan in fans { XCTAssertEqual(quiet[fan.id], fan.minimum) }
+  }
+  func testTurboStillRejectsMissingTemperatureReadings() {
+    var controller = FanController()
+    XCTAssertThrowsError(try controller.targets(Snapshot(fans: fans, sensors: []), mode: .turbo))
+  }
+
   private let fans = [
     Fan(id: 0, rpm: 2000, minimum: 1350, maximum: 5349),
     Fan(id: 1, rpm: 2000, minimum: 1458, maximum: 5777),
@@ -27,7 +53,7 @@ final class ControllerTests: XCTestCase {
     }
     XCTAssertEqual(FanController.fraction(temperature: 80, mode: .performance), 1)
     XCTAssertEqual(
-      FanController.fraction(temperature: 55, mode: .performance), 0.325, accuracy: 0.0001)
+      FanController.fraction(temperature: 55, mode: .performance), 0.425, accuracy: 0.0001)
   }
   func testStartupRampIsBoundedAndDifferentFanRangesAreRespected() throws {
     var c = FanController()

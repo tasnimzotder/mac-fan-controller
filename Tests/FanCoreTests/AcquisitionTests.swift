@@ -3,6 +3,20 @@ import XCTest
 @testable import FanCore
 
 final class AcquisitionTests: XCTestCase {
+  func testFreshUnlockSettlesBeforeModeWriteRetries() throws {
+    var time = 0.0
+    var mode = 3.0
+    var unlock = 0.0
+    try FanAcquisition.acquire(deadline: 10, clock: { time }, sleep: { time += $0 },
+      cancelled: { false }, readMode: { mode }, writeManual: {
+        if unlock == 0 { throw FanError("protected") }
+        XCTAssertGreaterThanOrEqual(time, 3)
+        mode = 1
+      }, readUnlock: { unlock }, writeUnlock: { unlock = 1 })
+    XCTAssertEqual(mode, 1)
+    XCTAssertLessThan(time, 10)
+  }
+
   func testOldConnectionCannotCancelNewLease() {
     let cancellation = ControlCancellation()
     let old = UUID()

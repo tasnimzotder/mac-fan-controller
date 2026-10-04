@@ -5,7 +5,7 @@ import ServiceManagement
 
 @MainActor enum Maintenance {
   /// Exercise the authenticated helper for twenty seconds, then explicitly release control.
-  static func verifyPerformance() {
+  static func verifyPerformance(presets: Bool = false) {
     guard NSRunningApplication.runningApplications(
       withBundleIdentifier: "com.tasnimzotder.mac-fan-controller"
     ).allSatisfy({ $0.processIdentifier == ProcessInfo.processInfo.processIdentifier }),
@@ -43,16 +43,24 @@ import ServiceManagement
       var failure: Error?
       do {
         let hardware = try SMC()
-        for _ in 0..<10 {
-          try await command(.performance)
-          try await Task.sleep(nanoseconds: 2_000_000_000)
-          let snapshot = try hardware.snapshot()
-          guard !snapshot.fans.isEmpty, snapshot.fans.allSatisfy({
-            $0.mode == 1 && ($0.minimum...$0.maximum).contains($0.target)
-          }) else { throw FanError("Firmware lost manual mode or its target.") }
-          print("Performance: " + snapshot.fans.map {
-            "fan \($0.id + 1) \(Int($0.rpm)) RPM, target \(Int($0.target))"
-          }.joined(separator: "; "))
+        let modes: [ControlMode] = presets ? [.quiet, .balanced, .performance, .turbo] : [.performance]
+        for mode in modes {
+          for _ in 0..<(presets ? 2 : 10) {
+            try await command(mode)
+            try await Task.sleep(nanoseconds: 2_000_000_000)
+            let snapshot = try hardware.snapshot()
+            guard !snapshot.fans.isEmpty, snapshot.fans.allSatisfy({
+              $0.mode == 1 && ($0.minimum...$0.maximum).contains($0.target)
+            }) else { throw FanError("Firmware lost manual mode or its target.") }
+            if mode == .turbo {
+              guard snapshot.fans.allSatisfy({ abs($0.target - $0.maximum) < 100 }) else {
+                throw FanError("Turbo target did not reach the hardware maximum.")
+              }
+            }
+            print(mode.title + ": " + snapshot.fans.map {
+              "fan \($0.id + 1) \(Int($0.rpm)) RPM, target \(Int($0.target))"
+            }.joined(separator: "; "))
+          }
         }
       } catch { failure = error }
       do {
@@ -65,7 +73,7 @@ import ServiceManagement
       } catch { failure = error }
       connection.invalidate()
       if let failure { fputs("Verification failed: \(failure.localizedDescription)\n", stderr); exit(1) }
-      print("Performance remained active for twenty seconds.")
+      print(presets ? "All cooling presets and Turbo verified." : "Performance remained active for twenty seconds.")
       exit(0)
     }
     DispatchQueue.main.asyncAfter(deadline: .now() + 60) {

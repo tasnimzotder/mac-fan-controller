@@ -197,6 +197,8 @@ public final class SMC {
       throw FanError("Cannot restore: fan count unavailable.")
     }
     var errors: [String] = []
+    let unlockWasReadable = number("Ftst") != nil
+    let readableTargets = (0..<Int(count)).filter { number("F\($0)Tg") != nil }
     for id in 0..<Int(count) {
       do {
         let key = modeKey(id)
@@ -217,7 +219,7 @@ public final class SMC {
             return false
           }
           return true
-        } && self.number("Ftst") != 1
+      } && (unlockWasReadable ? self.number("Ftst") == 0 : self.number("Ftst") != 1)
       }, failure: {
         var failures = errors
         for id in 0..<Int(count) {
@@ -235,8 +237,8 @@ public final class SMC {
       }
     }
     try FanReadback.wait(deadline: deadline, matches: {
-      (0..<Int(count)).allSatisfy { id in
-        self.number("F\(id)Tg") == nil || self.number("F\(id)Tg") == 0
+      readableTargets.allSatisfy { id in
+        self.number("F\(id)Tg") == 0
       }
     }, failure: { "Forced fan target clearing did not settle." })
   }

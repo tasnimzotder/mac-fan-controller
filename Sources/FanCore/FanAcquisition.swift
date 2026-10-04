@@ -28,7 +28,17 @@ public enum FanAcquisition {
       throw FanError("Firmware refused manual mode and provides no fan-control unlock key.")
     }
     try check()
-    if unlock != 1 { try writeUnlock() }
+    if unlock != 1 {
+      try writeUnlock()
+      // thermalmonitord needs time to yield after a fresh unlock. Avoid repeatedly
+      // writing mode while that transition is still in progress.
+      let settleUntil = min(deadline, clock() + 3)
+      while clock() < settleUntil {
+        try check()
+        if readMode() == 1 { return }
+        sleep(min(0.1, max(0, settleUntil - clock())))
+      }
+    }
     while true {
       try check()
       do {

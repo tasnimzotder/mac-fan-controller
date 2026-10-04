@@ -2,7 +2,7 @@
 <h1 align="center">Mac Fan Controller</h1>
 <p align="center">Native cooling controls, right in your Mac's menu bar.</p>
 
-SwiftUI screens in an AppKit popover, with no Dock icon. The default is Apple automatic. Optional performance, balanced, quiet, and manual modes use a separate privileged helper. Settings and temperature/RPM history live in a local SQLite database.
+SwiftUI screens in an AppKit popover, with no Dock icon. The default is Apple automatic. Optional performance, balanced, quiet, turbo, and manual modes use a separate privileged helper. Settings and temperature/RPM history live in a local SQLite database.
 
 - Configurable temperature and fan RPM in the menu bar, including both fans.
 - Independent manual sliders or synchronized control relative to each fan's range.
@@ -69,6 +69,8 @@ Hardware fan writes, helper authorization, crash recovery on actual fans, and la
 Quit Macs Fan Control before using a preset; concurrent controllers can overwrite the same firmware keys. For a bounded hardware check, quit the GUI and run the installed executable with `--verify-performance`. This actively controls the fans for twenty seconds, checks their modes and targets, then verifies Apple automatic mode and unlock release.
 
 Local rebuilds can set `MFC_BUILD_NUMBER` to a distinct numeric bundle version when macOS retains a previous helper registration. With the GUI closed and fans already automatic, `--repair-helper` refreshes that registration; macOS may require background-item approval again.
+
+`--verify-presets` performs a bounded live check of Quiet, Balanced, Performance, and Turbo, then restores Apple automatic. History range buttons change only the displayed period; Keep history controls retention. Charts label units, preserve sampling gaps, and show exact readings on hover.
 
 ## License
 
