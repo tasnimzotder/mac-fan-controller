@@ -3,12 +3,15 @@ import Foundation
 /// Conservative read-only proof for removing an unreachable helper. Missing readbacks
 /// cannot be treated as release; unsupported unlock keys use authenticated recovery.
 public enum AutomaticControlVerification {
-  public static func verify(readNumber: (String) -> Double?) throws {
+  public static func verify(
+    readNumber: (String) -> Double?, allowMissingUnlock: Bool = false
+  ) throws {
     guard let count = readNumber("FNum"), count.isFinite,
       (0...9).contains(count), count == count.rounded() else {
       throw FanError("Cannot remove helper: fan count is unavailable.")
     }
-    guard readNumber("Ftst") == 0 else {
+    let unlock = readNumber("Ftst")
+    guard unlock == 0 || (allowMissingUnlock && unlock == nil) else {
       throw FanError("Cannot remove helper: firmware unlock release is unconfirmed.")
     }
     for id in 0..<Int(count) {

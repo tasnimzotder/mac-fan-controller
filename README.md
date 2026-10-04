@@ -50,6 +50,8 @@ The template is [.github/homebrew/mac-fan-controller.rb.template](.github/homebr
 
 For manual removal: select Apple automatic, then **Remove helper** in Settings, quit the app, and remove its bundle. The read-only monitoring database remains unless you remove it explicitly.
 
+If the helper is unreachable during cleanup, complete hardware readbacks can independently confirm automatic ownership before unregistration. The check rejects manual mode, a held unlock, and missing/invalid readings. macOS may populate its own nonzero target RPMs after release; valid automatic targets do not block removal.
+
 ## Local data
 
 Real data: `~/Library/Application Support/Mac Fan Controller/fan-controller.sqlite3`.

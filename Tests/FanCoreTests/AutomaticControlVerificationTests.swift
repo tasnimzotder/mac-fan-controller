@@ -21,6 +21,16 @@ final class AutomaticControlVerificationTests: XCTestCase {
     XCTAssertThrowsError(try AutomaticControlVerification.verify { values[$0] })
   }
 
+  func testInitialRegistrationCanSupportFirmwareWithoutUnlockKey() throws {
+    var values = automatic
+    values.removeValue(forKey: "Ftst")
+    XCTAssertThrowsError(try AutomaticControlVerification.verify { values[$0] })
+    try AutomaticControlVerification.verify(readNumber: { values[$0] }, allowMissingUnlock: true)
+    values["Ftst"] = 1
+    XCTAssertThrowsError(try AutomaticControlVerification.verify(
+      readNumber: { values[$0] }, allowMissingUnlock: true))
+  }
+
   func testLowercaseModeKeysAreSupported() throws {
     var values = automatic
     values["F0md"] = values.removeValue(forKey: "F0Md")

@@ -124,11 +124,8 @@ import ServiceManagement
           throw FanError("Quit Mac Fan Controller before repairing its helper.")
         }
         let hardware = try SMC()
-        let snapshot = try hardware.snapshot()
-        guard snapshot.fans.allSatisfy({ $0.mode == 0 || $0.mode == 3 }),
-          snapshot.fans.allSatisfy({ hardware.number("F\($0.id)Tg") == 0 }),
-          hardware.number("Ftst") != 1
-        else { throw FanError("Repair aborted: fans must be in Apple automatic mode.") }
+        try AutomaticControlVerification.verify(
+          readNumber: hardware.number, allowMissingUnlock: true)
         let service = SMAppService.daemon(plistName: helperLabel + ".plist")
         if service.status != .notRegistered && service.status != .notFound {
           try await service.unregister()
