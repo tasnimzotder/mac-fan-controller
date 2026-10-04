@@ -66,6 +66,10 @@ hdiutil verify dist/MacFanController_v0.1.0-alpha_aarch64.dmg
 
 Hardware fan writes, helper authorization, crash recovery on actual fans, and launch-at-login behavior still require device-level validation. CI and tests cannot replace it.
 
+Quit Macs Fan Control before using a preset; concurrent controllers can overwrite the same firmware keys. For a bounded hardware check, quit the GUI and run the installed executable with `--verify-performance`. This actively controls the fans for twenty seconds, checks their modes and targets, then verifies Apple automatic mode and unlock release.
+
+Local rebuilds can set `MFC_BUILD_NUMBER` to a distinct numeric bundle version when macOS retains a previous helper registration. With the GUI closed and fans already automatic, `--repair-helper` refreshes that registration; macOS may require background-item approval again.
+
 ## License
 
 MIT. Existing implementations were consulted for protocol behavior and architecture, as recorded in the research note; their code is not bundled.

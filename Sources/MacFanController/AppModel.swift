@@ -145,6 +145,13 @@ import SwiftUI
       return
     }
     if value != .automatic {
+      guard NSRunningApplication.runningApplications(
+        withBundleIdentifier: "com.crystalidea.macsfancontrol"
+      ).isEmpty else {
+        error = "Quit Macs Fan Control before enabling fan control; both apps write the same firmware keys."
+        completion?(false)
+        return
+      }
       guard let snapshot, !snapshot.fans.isEmpty, snapshot.fans.allSatisfy(\.controllable),
         snapshot.hottest != nil
       else {
@@ -275,6 +282,8 @@ import SwiftUI
     guard !sleeping, !reading else { return }
     if mode != .automatic && !pending && !demo {
       send(.init(mode: mode, fractions: manualFractions()))
+    } else if recoveryUnconfirmed && !pending && !demo && service.status == .enabled {
+      send(.init(mode: .automatic, statusOnly: true))
     }
     if demo {
       demoTick += 1

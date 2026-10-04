@@ -71,9 +71,11 @@ public struct HistoryPoint: Identifiable {
 public struct HelperRequest: Codable {
   public var mode: ControlMode
   public var fractions: [Double]
-  public init(mode: ControlMode, fractions: [Double] = []) {
+  public var statusOnly: Bool?
+  public init(mode: ControlMode, fractions: [Double] = [], statusOnly: Bool? = nil) {
     self.mode = mode
     self.fractions = fractions
+    self.statusOnly = statusOnly
   }
 }
 public struct HelperReply: Codable {

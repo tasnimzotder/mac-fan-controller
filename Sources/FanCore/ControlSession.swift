@@ -37,6 +37,7 @@ public final class ControlSession {
   public func command(
     _ request: HelperRequest, uptime: TimeInterval = ProcessInfo.processInfo.systemUptime
   ) -> HelperReply {
+    if request.statusOnly == true { return HelperReply(mode: mode, error: failure) }
     let started = clock()
     do {
       if request.mode == .automatic {
@@ -77,7 +78,7 @@ public final class ControlSession {
 
   public func tick(uptime: TimeInterval = ProcessInfo.processInfo.systemUptime) {
     if recoveryPending {
-      release(preserveFailure: true)
+      release()
       return
     }
     guard mode != .automatic else { return }
@@ -110,7 +111,9 @@ public final class ControlSession {
       if !preserveFailure { failure = nil }
     } catch {
       recoveryPending = true
+      let original = preserveFailure ? failure : nil
       failure = "Apple automatic restoration failed: \(error.localizedDescription)"
+      if let original { failure = original + " " + failure! }
     }
   }
 }

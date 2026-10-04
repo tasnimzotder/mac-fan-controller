@@ -27,6 +27,36 @@ private final class Hardware: FanHardware {
   }
 }
 final class SessionTests: XCTestCase {
+  func testControlFailureIsPreservedWhenRestorationAlsoFails() {
+    let hardware = Hardware()
+    hardware.writeFails = true
+    hardware.restoreFails = true
+    let session = ControlSession(hardware: hardware, clock: { 0 })
+    let response = session.command(.init(mode: .performance), uptime: 10)
+    XCTAssertTrue(response.error?.contains("firmware rejected target") == true)
+    XCTAssertTrue(response.error?.contains("Apple automatic restoration failed") == true)
+    XCTAssertTrue(session.recoveryPending)
+  }
+
+  func testStatusQueryDoesNotWriteOrHidePendingRecovery() {
+    let hardware = Hardware()
+    let session = ControlSession(hardware: hardware, clock: { 0 })
+    XCTAssertNil(session.command(.init(mode: .automatic, statusOnly: true)).error)
+    XCTAssertEqual(hardware.writes, 0)
+    XCTAssertEqual(hardware.restores, 0)
+    _ = session.command(.init(mode: .performance), uptime: 10)
+    hardware.restoreFails = true
+    session.release()
+    let writes = hardware.writes
+    let restores = hardware.restores
+    XCTAssertNotNil(session.command(.init(mode: .automatic, statusOnly: true)).error)
+    XCTAssertEqual(hardware.writes, writes)
+    XCTAssertEqual(hardware.restores, restores)
+    hardware.restoreFails = false
+    session.tick(uptime: 11)
+    XCTAssertNil(session.command(.init(mode: .automatic, statusOnly: true)).error)
+  }
+
   func testSlowAcquisitionGetsLeaseAfterCompletion() {
     let hardware = Hardware()
     var time = 10.0

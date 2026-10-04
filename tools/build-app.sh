@@ -2,6 +2,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 version=$(cat VERSION)
+build_version=${MFC_BUILD_NUMBER:-${version%%-*}}
 configuration=${MFC_BUILD_CONFIGURATION:-release}
 sign_identity=${MFC_SIGN_IDENTITY:--}
 swift build -c "$configuration" --arch arm64 -Xswiftc -warnings-as-errors
@@ -21,7 +22,7 @@ cat > "$app/Contents/Info.plist" <<PLIST
 <key>CFBundleDisplayName</key><string>Mac Fan Controller</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleShortVersionString</key><string>$version</string>
-<key>CFBundleVersion</key><string>${version%%-*}</string>
+<key>CFBundleVersion</key><string>$build_version</string>
 <key>CFBundleIconFile</key><string>AppIcon</string>
 <key>LSMinimumSystemVersion</key><string>13.0</string>
 <key>LSUIElement</key><true/>

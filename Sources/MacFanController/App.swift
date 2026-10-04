@@ -4,6 +4,14 @@ import SwiftUI
 
 @main struct MacFanApplication {
   @MainActor static func main() {
+    if CommandLine.arguments.contains("--verify-performance") {
+      Maintenance.verifyPerformance()
+      return
+    }
+    if CommandLine.arguments.contains("--repair-helper") {
+      Maintenance.repairHelper()
+      return
+    }
     if CommandLine.arguments.contains("--unregister-helper") {
       Maintenance.unregisterHelper()
       return
