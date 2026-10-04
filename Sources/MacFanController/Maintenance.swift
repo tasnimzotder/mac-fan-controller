@@ -42,6 +42,17 @@ import ServiceManagement
       guard reply.mode == mode, reply.error == nil else {
         throw FanError(reply.error ?? "Helper changed control mode.")
       }
+      if presets && [.quiet, .balanced, .performance].contains(mode) {
+        guard let pid = reply.pid, pid.mode == mode,
+          pid.date.timeIntervalSinceNow > -6,
+          pid.appliedTargets.values.allSatisfy({ $0.isFinite }),
+          [pid.temperature, pid.error, pid.proportional, pid.integral, pid.derivative, pid.demand]
+            .allSatisfy({ $0.isFinite }) else {
+          throw FanError("Live PID telemetry unavailable or invalid.")
+        }
+        print(String(format: "PID %@: error %+.2f °C, P %+.4f, I %+.4f, D %+.4f, demand %.4f",
+          mode.title, pid.error, pid.proportional, pid.integral, pid.derivative, pid.demand))
+      }
     }
     Task { @MainActor in
       var failure: Error?

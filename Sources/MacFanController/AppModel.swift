@@ -7,6 +7,7 @@ import SwiftUI
   @Published var snapshot: Snapshot?
   @Published var settings = Settings()
   @Published var mode = ControlMode.automatic
+  @Published private(set) var pidTelemetry: PIDTelemetry?
   @Published var history: [HistoryPoint] = []
   @Published var historyHours = 1
   @Published var error: String?
@@ -88,6 +89,13 @@ import SwiftUI
     RunLoop.main.add(timer, forMode: .common)
     self.timer = timer
   }
+  var currentPIDTelemetry: PIDTelemetry? {
+    guard let pid = pidTelemetry, pid.mode == mode,
+      Date().timeIntervalSince(pid.date) >= -2,
+      Date().timeIntervalSince(pid.date) < 6 else { return nil }
+    return pid
+  }
+
   func refreshHelperStatus() {
     helperRegistered = !demo && InstalledApp.isCurrentBundleInstalled && service.status == .enabled
     if demo {
@@ -257,6 +265,7 @@ import SwiftUI
           failure("Helper disconnected. Apple-control recovery is not confirmed.")
         } else {
           self.mode = .automatic
+          self.pidTelemetry = nil
           self.error = "Helper disconnected. Apple-control recovery is not confirmed."
           self.onUpdate?()
         }
@@ -297,6 +306,7 @@ import SwiftUI
           self.refreshHelperStatus()
           self.recoveryUnconfirmed = response.error?.contains("restoration failed") == true
           self.mode = response.mode
+          self.pidTelemetry = response.error == nil ? response.pid : nil
           self.error = response.error
           completion?(response.error == nil)
         } else {
@@ -304,6 +314,7 @@ import SwiftUI
           self.refreshHelperStatus()
           self.recoveryUnconfirmed = true
           self.mode = .automatic
+          self.pidTelemetry = nil
           self.error =
             message ?? "Sleep cancelled fan acquisition; Apple-control recovery is unconfirmed."
           self.connection?.invalidate()

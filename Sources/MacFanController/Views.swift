@@ -149,7 +149,9 @@ struct ContentView: View {
           }
         }
       }
-      ForEach(model.snapshot?.fans ?? []) { fan in
+      PIDPanel(telemetry: model.currentPIDTelemetry, mode: model.mode, demo: model.demo)
+
+    ForEach(model.snapshot?.fans ?? []) { fan in
         VStack(alignment: .leading, spacing: 8) {
           HStack {
             Label("Fan \(fan.id + 1)", systemImage: "fanblades").font(.subheadline.weight(.medium))

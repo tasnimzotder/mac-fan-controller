@@ -27,6 +27,53 @@ private final class Hardware: FanHardware {
   }
 }
 final class SessionTests: XCTestCase {
+  func testPIDTelemetryRoundTripsAndReadOnlyStatusReturnsIt() throws {
+    let hardware = Hardware()
+    hardware.temperature = 77
+    let session = ControlSession(hardware: hardware, clock: { 0 })
+    let reply = session.command(.init(mode: .balanced), uptime: 10)
+    XCTAssertNil(reply.error)
+    let pid = try XCTUnwrap(reply.pid)
+    XCTAssertEqual(pid.mode, .balanced)
+    XCTAssertEqual(pid.temperature, 77)
+    XCTAssertEqual(pid.error, 2)
+    XCTAssertEqual(pid.proportional, pid.kp * pid.error, accuracy: 1e-10)
+    XCTAssertEqual(pid.derivative, pid.kd * pid.temperatureRate, accuracy: 1e-10)
+    XCTAssertEqual(pid.appliedTargets.count, 1)
+    XCTAssertNotNil(pid.appliedTargets[0])
+    let encoded = try JSONEncoder().encode(reply)
+    let decoded = try JSONDecoder().decode(HelperReply.self, from: encoded)
+    XCTAssertEqual(decoded.pid, pid)
+    let writes = hardware.writes
+    let status = session.command(.init(mode: .automatic, statusOnly: true))
+    XCTAssertEqual(status.pid, pid)
+    XCTAssertEqual(hardware.writes, writes)
+    hardware.temperature = 79
+    session.tick(uptime: 11)
+    let updated = try XCTUnwrap(session.command(.init(mode: .automatic, statusOnly: true)).pid)
+    XCTAssertGreaterThan(updated.date, pid.date)
+    XCTAssertEqual(updated.rawTemperature, 79)
+    XCTAssertGreaterThan(updated.error, pid.error)
+    XCTAssertNil(session.command(.init(mode: .automatic)).pid)
+    XCTAssertNil(session.command(.init(mode: .turbo), uptime: 11).pid)
+    XCTAssertNil(session.command(.init(mode: .manual, fractions: [0.5]), uptime: 12).pid)
+  }
+
+  func testPIDTelemetryIsClearedWhenHardwareApplicationFails() {
+    let hardware = Hardware()
+    hardware.writeFails = true
+    let session = ControlSession(hardware: hardware, clock: { 0 })
+    let reply = session.command(.init(mode: .performance), uptime: 10)
+    XCTAssertNotNil(reply.error)
+    XCTAssertNil(reply.pid)
+  }
+
+  func testOlderHelperReplyWithoutPIDStillDecodes() throws {
+    let reply = try JSONDecoder().decode(HelperReply.self, from: Data("{\"mode\":\"balanced\"}".utf8))
+    XCTAssertEqual(reply.mode, .balanced)
+    XCTAssertNil(reply.pid)
+  }
+
   func testControlFailureIsPreservedWhenRestorationAlsoFails() {
     let hardware = Hardware()
     hardware.writeFails = true

@@ -37,13 +37,13 @@ public final class ControlSession {
   public func command(
     _ request: HelperRequest, uptime: TimeInterval = ProcessInfo.processInfo.systemUptime
   ) -> HelperReply {
-    if request.statusOnly == true { return HelperReply(mode: mode, error: failure) }
+    if request.statusOnly == true { return HelperReply(mode: mode, error: failure, pid: controller.telemetry) }
     let started = clock()
     do {
       if request.mode == .automatic {
         // An explicit command also lets the user recover a retained override.
         release(force: true)
-        return HelperReply(mode: mode, error: failure)
+        return HelperReply(mode: mode, error: failure, pid: controller.telemetry)
       }
       guard !recoveryPending else { throw FanError("Apple-control restoration is still pending.") }
       let snapshot = try hardware.snapshot()
@@ -72,7 +72,7 @@ public final class ControlSession {
       failure = error.localizedDescription
       release(preserveFailure: true)
     }
-    return HelperReply(mode: mode, error: failure)
+    return HelperReply(mode: mode, error: failure, pid: controller.telemetry)
   }
 
   public func tick(uptime: TimeInterval = ProcessInfo.processInfo.systemUptime) {

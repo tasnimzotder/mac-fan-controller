@@ -57,3 +57,8 @@ For each fan-equipped Apple Silicon model and macOS version:
 - Repeat after OS upgrades. Do not infer one machine's success from another's results.
 
 A fanless M2 MacBook Air on macOS 27 was available during development. It verifies monitoring and native UI behavior; it does not establish fan-write support.
+
+
+## Live PID readings
+
+The helper returns an optional PID snapshot with each control/status reply. It captures the actual filtered/raw temperature, setpoint, elapsed interval, gains, error, filtered temperature rate, P/I/D contributions, curve fraction, clamped correction, pre-ramp demand, post-ramp targets, and limiting/emergency state from the same control iteration. The UI refreshes with the normal two-second heartbeat, hides readings older than six seconds or from another mode, and clears them after control errors/restoration. Automatic, Turbo, and manual modes report PID inactive; demo mode does not pretend to have live helper readings. Values are current diagnostics, not additional persisted history.

@@ -5,6 +5,7 @@ public struct CurvePoint: Equatable {
   public var fraction: Double
 }
 public struct FanController {
+  public private(set) var telemetry: PIDTelemetry?
   private var filtered: Double?
   private var pid = ThermalPID()
   private var previousDate: Date?
@@ -116,6 +117,19 @@ public struct FanController {
         }
       }
       targets[fan.id] = min(fan.maximum, max(fan.minimum, target.rounded()))
+    }
+    if let tuning = ThermalPID.Tuning.preset(mode), let terms = pid.terms {
+      telemetry = PIDTelemetry(
+        date: snapshot.date, mode: mode, rawTemperature: raw, temperature: temperature,
+        setpoint: tuning.setpoint, error: temperature - tuning.setpoint, sampleInterval: dt,
+        kp: tuning.kp, ki: tuning.ki, kd: tuning.kd,
+        proportional: terms.proportional, integral: pid.integral, derivative: terms.derivative,
+        temperatureRate: pid.derivative, baseline: baseline, correction: terms.correction,
+        demand: emergency ? 1 : proportion, appliedTargets: targets,
+        integrationLimited: terms.integrationLimited, outputLimited: terms.outputLimited,
+        emergency: emergency)
+    } else {
+      telemetry = nil
     }
     lastTargets = targets
     return targets

@@ -19,6 +19,14 @@ struct ThermalPID {
     }
   }
 
+  struct Terms {
+    var proportional: Double
+    var derivative: Double
+    var correction: Double
+    var integrationLimited: Bool
+    var outputLimited: Bool
+  }
+  private(set) var terms: Terms?
   private(set) var integral = 0.0
   private(set) var derivative = 0.0
   private var previousTemperature: Double?
@@ -50,6 +58,10 @@ struct ThermalPID {
     }
     let correction = min(0.35, max(0, p + integral + d))
     let demand = min(1, max(baseline, baseline + correction))
+    terms = Terms(
+      proportional: p, derivative: d, correction: correction,
+      integrationLimited: emergency || (delta > 0 && (candidate >= 0.20 || outputSaturated || rampLimited)),
+      outputLimited: outputSaturated)
     previousTemperature = temperature
     previousError = error
     previousDemand = demand
