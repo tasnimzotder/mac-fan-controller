@@ -109,8 +109,11 @@ final class SessionTests: XCTestCase {
     var time = 10.0
     hardware.onApply = { time = 19 }
     let session = ControlSession(hardware: hardware, clock: { time })
-    XCTAssertNil(session.command(.init(mode: .performance), uptime: 10).error)
+    let reply = session.command(.init(mode: .performance), uptime: 10)
+    XCTAssertNil(reply.error)
+    XCTAssertNil(reply.pid) // Slow acquisition intentionally discards the old sample.
     session.tick(uptime: 20)
+    XCTAssertNotNil(session.command(.init(mode: .automatic, statusOnly: true)).pid)
     XCTAssertEqual(session.mode, .performance)
     session.tick(uptime: 27)
     XCTAssertEqual(session.mode, .automatic)

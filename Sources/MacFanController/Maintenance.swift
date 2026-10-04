@@ -27,7 +27,7 @@ import ServiceManagement
         for: Bundle.main.bundleURL.appendingPathComponent("Contents/MacOS/mfc-helper")))
     } catch { fputs("\(error.localizedDescription)\n", stderr); exit(1) }
     connection.resume()
-    func command(_ mode: ControlMode) async throws {
+    func command(_ mode: ControlMode, requireTelemetry: Bool = true) async throws {
       let data = try JSONEncoder().encode(HelperRequest(mode: mode))
       let response: Data = try await withCheckedThrowingContinuation { continuation in
         guard let proxy = connection.remoteObjectProxyWithErrorHandler({ error in
@@ -42,7 +42,7 @@ import ServiceManagement
       guard reply.mode == mode, reply.error == nil else {
         throw FanError(reply.error ?? "Helper changed control mode.")
       }
-      if presets && [.quiet, .balanced, .performance].contains(mode) {
+      if presets && requireTelemetry && [.quiet, .balanced, .performance].contains(mode) {
         guard let pid = reply.pid, pid.mode == mode,
           pid.date.timeIntervalSinceNow > -6,
           pid.appliedTargets.values.allSatisfy({ $0.isFinite }),
@@ -60,8 +60,8 @@ import ServiceManagement
         let hardware = try SMC()
         let modes: [ControlMode] = presets ? [.quiet, .balanced, .performance, .turbo] : [.performance]
         for mode in modes {
-          for _ in 0..<(presets ? 2 : 10) {
-            try await command(mode)
+          for cycle in 0..<(presets ? 2 : 10) {
+            try await command(mode, requireTelemetry: cycle > 0)
             try await Task.sleep(nanoseconds: 2_000_000_000)
             let snapshot = try hardware.snapshot()
             guard !snapshot.fans.isEmpty, snapshot.fans.allSatisfy({
