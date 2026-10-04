@@ -306,9 +306,16 @@ struct ContentView: View {
   private func historyChart(temperature: Bool) -> some View {
     let unit = temperature ? "°C" : "RPM"
     let values = model.history.compactMap { temperature ? $0.temperature : $0.rpm }
-    let lower = temperature ? max(0, floor((values.min() ?? 40) / 5) * 5 - 5) : 0
-    let upper = temperature ? max(lower + 15, ceil((values.max() ?? 60) / 5) * 5 + 5)
-      : max(1000, ceil(max(values.max() ?? 0, model.snapshot?.fans.map(\.maximum).max() ?? 0) / 1000) * 1000)
+    let minimumValue: Double = values.min() ?? 40
+    let maximumValue: Double = values.max() ?? (temperature ? 60 : 0)
+    let roundedMinimum = floor(minimumValue / 5.0) * 5.0 - 5.0
+    let roundedMaximum = ceil(maximumValue / 5.0) * 5.0 + 5.0
+    let hardwareMaximum: Double = model.snapshot?.fans.map(\.maximum).max() ?? 0
+    let maximumRPM = max(maximumValue, hardwareMaximum)
+    let roundedRPM = ceil(maximumRPM / 1000.0) * 1000.0
+    let lower: Double = temperature ? max(0.0, roundedMinimum) : 0.0
+    let upper: Double = temperature
+      ? max(lower + 15.0, roundedMaximum) : max(1000.0, roundedRPM)
     let end = model.snapshot?.date ?? Date()
     let start = end.addingTimeInterval(-Double(model.historyHours) * 3600)
     return VStack(alignment: .leading, spacing: 8) {
