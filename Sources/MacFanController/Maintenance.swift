@@ -124,11 +124,8 @@ import ServiceManagement
           throw FanError("Quit Mac Fan Controller before repairing its helper.")
         }
         let hardware = try SMC()
-        let snapshot = try hardware.snapshot()
-        guard snapshot.fans.allSatisfy({ $0.mode == 0 || $0.mode == 3 }),
-          snapshot.fans.allSatisfy({ hardware.number("F\($0.id)Tg") == 0 }),
-          hardware.number("Ftst") != 1
-        else { throw FanError("Repair aborted: fans must be in Apple automatic mode.") }
+        try AutomaticControlVerification.verify(
+          readNumber: hardware.number, allowMissingUnlock: true)
         let service = SMAppService.daemon(plistName: helperLabel + ".plist")
         if service.status != .notRegistered && service.status != .notFound {
           try await service.unregister()
@@ -157,59 +154,89 @@ import ServiceManagement
   }
 
   static func unregisterHelper() {
-    do { try InstalledApp.requireInstalledBundle() } catch {
-      fputs("\(error.localizedDescription)\n", stderr)
-      exit(1)
+    Task { @MainActor in
+      do {
+        try InstalledApp.requireInstalledBundle()
+        // Homebrew requests quit asynchronously. Wait for GUI ownership to end.
+        for _ in 0..<50 {
+          if NSRunningApplication.runningApplications(
+            withBundleIdentifier: "com.tasnimzotder.mac-fan-controller"
+          ).allSatisfy({ $0.processIdentifier == ProcessInfo.processInfo.processIdentifier }) {
+            break
+          }
+          try await Task.sleep(nanoseconds: 100_000_000)
+        }
+        guard NSRunningApplication.runningApplications(
+          withBundleIdentifier: "com.tasnimzotder.mac-fan-controller"
+        ).allSatisfy({ $0.processIdentifier == ProcessInfo.processInfo.processIdentifier }) else {
+          throw FanError("Quit Mac Fan Controller before removing its helper.")
+        }
+        let service = SMAppService.daemon(plistName: helperLabel + ".plist")
+        guard service.status != .notRegistered && service.status != .notFound else {
+          print("Fan helper is not registered.")
+          exit(0)
+        }
+        // Automatic firmware state is sufficient even if the old helper cannot launch.
+        if let hardware = try? SMC(),
+          (try? AutomaticControlVerification.verify(readNumber: hardware.number)) != nil {
+          try await service.unregister()
+          print("Apple automatic independently verified; helper unregistered.")
+          exit(0)
+        }
+        unregisterThroughHelper(service)
+      } catch {
+        fputs("Cannot remove helper: \(error.localizedDescription)\n", stderr)
+        exit(1)
+      }
     }
-    let service = SMAppService.daemon(plistName: helperLabel + ".plist")
-    guard service.status != .notRegistered && service.status != .notFound else {
-      print("Fan helper is not registered.")
-      return
-    }
-    // Always verify release before removing the watchdog. Quit the running GUI first.
+    RunLoop.current.run()
+  }
+
+  private static func unregisterThroughHelper(_ service: SMAppService) {
     let connection = NSXPCConnection(machServiceName: helperLabel, options: .privileged)
     connection.remoteObjectInterface = NSXPCInterface(with: FanHelperProtocol.self)
     do {
       try connection.setCodeSigningRequirement(
-        signingRequirement(
-          for: Bundle.main.bundleURL.appendingPathComponent("Contents/MacOS/mfc-helper")))
+        signingRequirement(for: Bundle.main.bundleURL.appendingPathComponent("Contents/MacOS/mfc-helper")))
     } catch {
       fputs("\(error.localizedDescription)\n", stderr)
       exit(1)
     }
     connection.resume()
-    guard
-      let proxy = connection.remoteObjectProxyWithErrorHandler({ error in
-        fputs("Cannot remove helper: \(error.localizedDescription). Quit the app first.\n", stderr)
-        exit(1)
-      }) as? FanHelperProtocol
-    else { exit(1) }
-    do {
-      proxy.command(try JSONEncoder().encode(HelperRequest(mode: .automatic))) { data in
-        Task { @MainActor in
-          do {
-            let reply = try JSONDecoder().decode(HelperReply.self, from: data)
-            guard reply.mode == .automatic, reply.error == nil else {
-              throw FanError(reply.error ?? "Automatic restoration not confirmed.")
-            }
-            connection.invalidate()
-            try await service.unregister()
-            print("Apple automatic restored; helper unregistered.")
-            exit(0)
-          } catch {
-            fputs("Cannot remove helper: \(error.localizedDescription)\n", stderr)
-            exit(1)
+    var completed = false
+    func finish(_ reply: HelperReply?, _ message: String?) {
+      Task { @MainActor in
+        guard !completed else { return }
+        completed = true
+        connection.invalidate()
+        do {
+          if reply?.mode != .automatic || reply?.error != nil || reply == nil {
+            let hardware = try SMC()
+            try AutomaticControlVerification.verify(readNumber: hardware.number)
           }
+          try await service.unregister()
+          print("Apple automatic verified; helper unregistered.")
+          exit(0)
+        } catch {
+          fputs("Removal aborted; watchdog remains installed. \(message ?? reply?.error ?? "") \(error.localizedDescription)\n", stderr)
+          exit(1)
         }
       }
-    } catch {
-      fputs("\(error.localizedDescription)\n", stderr)
-      exit(1)
     }
+    guard let proxy = connection.remoteObjectProxyWithErrorHandler({ error in
+      finish(nil, error.localizedDescription)
+    }) as? FanHelperProtocol else {
+      finish(nil, "Helper connection failed.")
+      return
+    }
+    do {
+      proxy.command(try JSONEncoder().encode(HelperRequest(mode: .automatic))) { data in
+        do { finish(try JSONDecoder().decode(HelperReply.self, from: data), nil) }
+        catch { finish(nil, "Invalid helper response.") }
+      }
+    } catch { finish(nil, error.localizedDescription) }
     DispatchQueue.main.asyncAfter(deadline: .now() + FanAcquisition.requestTimeout) {
-      fputs("Helper timed out. Removal aborted; watchdog remains installed.\n", stderr)
-      exit(1)
+      finish(nil, "Helper timed out.")
     }
-    RunLoop.current.run()
   }
 }
