@@ -49,7 +49,7 @@ import ServiceManagement
       fputs("\(error.localizedDescription)\n", stderr)
       exit(1)
     }
-    DispatchQueue.main.asyncAfter(deadline: .now() + 10) {
+    DispatchQueue.main.asyncAfter(deadline: .now() + FanAcquisition.requestTimeout) {
       fputs("Helper timed out. Removal aborted; watchdog remains installed.\n", stderr)
       exit(1)
     }

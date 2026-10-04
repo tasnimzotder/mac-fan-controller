@@ -5,6 +5,7 @@ import Foundation
 public final class SMC {
   private var connection: UInt32 = 0
   private var sensorKeys: [String] = []
+  public var controlCancelled: () -> Bool = { false }
   public init() throws {
     let result = mfc_open(&connection)
     guard result == 0 else { throw FanError("AppleSMC unavailable (\(result)).") }
@@ -15,11 +16,28 @@ public final class SMC {
       .filter { number($0) != nil }
   }
   static let controlSensorKeys: [Int: [String]] = [
-    1: ["Tg05", "Tg0D", "Tg0L", "Tg0T", "Tp01", "Tp05", "Tp09", "Tp0D", "Tp0H", "Tp0L", "Tp0P", "Tp0T", "Tp0X", "Tp0b"],
-    2: ["Tg0f", "Tg0j", "Tp01", "Tp05", "Tp09", "Tp0D", "Tp0X", "Tp0b", "Tp0f", "Tp0j", "Tp1h", "Tp1l", "Tp1p", "Tp1t"],
-    3: ["Te05", "Te0L", "Te0P", "Te0S", "Tf04", "Tf09", "Tf0A", "Tf0B", "Tf0D", "Tf0E", "Tf14", "Tf18", "Tf19", "Tf1A", "Tf24", "Tf28", "Tf29", "Tf2A", "Tf44", "Tf49", "Tf4A", "Tf4B", "Tf4D", "Tf4E"],
-    4: ["Te05", "Te09", "Te0H", "Te0S", "Tg0G", "Tg0H", "Tg0K", "Tg0L", "Tg0d", "Tg0e", "Tg0j", "Tg0k", "Tg1U", "Tg1k", "Tp01", "Tp05", "Tp09", "Tp0D", "Tp0V", "Tp0Y", "Tp0b", "Tp0e"],
-    5: ["Tg0U", "Tg0X", "Tg0d", "Tg0g", "Tg0j", "Tg1Y", "Tg1c", "Tg1g", "Tp00", "Tp04", "Tp08", "Tp0C", "Tp0G", "Tp0K", "Tp0O", "Tp0R", "Tp0U", "Tp0X", "Tp0a", "Tp0d", "Tp0g", "Tp0j", "Tp0m", "Tp0p", "Tp0u", "Tp0y"],
+    1: [
+      "Tg05", "Tg0D", "Tg0L", "Tg0T", "Tp01", "Tp05", "Tp09", "Tp0D", "Tp0H", "Tp0L", "Tp0P",
+      "Tp0T", "Tp0X", "Tp0b",
+    ],
+    2: [
+      "Tg0f", "Tg0j", "Tp01", "Tp05", "Tp09", "Tp0D", "Tp0X", "Tp0b", "Tp0f", "Tp0j", "Tp1h",
+      "Tp1l", "Tp1p", "Tp1t",
+    ],
+    3: [
+      "Te05", "Te0L", "Te0P", "Te0S", "Tf04", "Tf09", "Tf0A", "Tf0B", "Tf0D", "Tf0E", "Tf14",
+      "Tf18", "Tf19", "Tf1A", "Tf24", "Tf28", "Tf29", "Tf2A", "Tf44", "Tf49", "Tf4A", "Tf4B",
+      "Tf4D", "Tf4E",
+    ],
+    4: [
+      "Te05", "Te09", "Te0H", "Te0S", "Tg0G", "Tg0H", "Tg0K", "Tg0L", "Tg0d", "Tg0e", "Tg0j",
+      "Tg0k", "Tg1U", "Tg1k", "Tp01", "Tp05", "Tp09", "Tp0D", "Tp0V", "Tp0Y", "Tp0b", "Tp0e",
+    ],
+    5: [
+      "Tg0U", "Tg0X", "Tg0d", "Tg0g", "Tg0j", "Tg1Y", "Tg1c", "Tg1g", "Tp00", "Tp04", "Tp08",
+      "Tp0C", "Tp0G", "Tp0K", "Tp0O", "Tp0R", "Tp0U", "Tp0X", "Tp0a", "Tp0d", "Tp0g", "Tp0j",
+      "Tp0m", "Tp0p", "Tp0u", "Tp0y",
+    ],
   ]
   public static var supportsControl: Bool {
     var arm64: Int32 = 0
@@ -83,17 +101,22 @@ public final class SMC {
   private func modeKey(_ id: Int) -> String { number("F\(id)md") == nil ? "F\(id)Md" : "F\(id)md" }
   public func snapshot() throws -> Snapshot {
     guard let count = number("FNum") ?? (Self.isKnownFanless ? 0 : nil), count.isFinite, count >= 0,
-      count <= 9
+      count <= 9, count == count.rounded()
     else { throw FanError("Fan count unavailable.") }
     let fans = try (0..<Int(count)).map { id -> Fan in
-      guard let rpm = number("F\(id)Ac"), rpm.isFinite, rpm >= 0,
+      guard let rpm = number("F\(id)Ac"), rpm.isFinite, rpm >= 0, rpm < 15000,
         let minimum = number("F\(id)Mn"), let maximum = number("F\(id)Mx"),
-        let mode = number(modeKey(id)), mode.isFinite
+        minimum.isFinite, minimum >= 0, maximum.isFinite, maximum >= minimum, maximum < 15000,
+        let mode = number(modeKey(id)), [0.0, 1.0, 3.0].contains(mode)
       else {
         throw FanError("Fan \(id+1) readings unavailable.")
       }
+      let target = number("F\(id)Tg") ?? 0
+      guard target.isFinite, target >= 0, target < 15000 else {
+        throw FanError("Fan \(id+1) target reading is invalid.")
+      }
       return Fan(
-        id: id, rpm: rpm, minimum: minimum, maximum: maximum, target: number("F\(id)Tg") ?? 0,
+        id: id, rpm: rpm, minimum: minimum, maximum: maximum, target: target,
         mode: Int(mode))
     }
     let sensors = sensorKeys.compactMap { key -> Sensor? in
@@ -137,40 +160,26 @@ public final class SMC {
     guard Set(targets.keys) == Set(snapshot.fans.map(\.id)) else {
       throw FanError("Incomplete fan targets.")
     }
+    let deadline = ProcessInfo.processInfo.systemUptime + FanAcquisition.timeout
     for fan in snapshot.fans {
       guard let target = targets[fan.id], target.isFinite, fan.controllable,
         (fan.minimum...fan.maximum).contains(target)
       else { throw FanError("Target outside hardware limits.") }
       let key = modeKey(fan.id)
-      if number(key) != 1 {
-        do { try writeNumber(key, 1) } catch {
-          // M3 thermal-manager handshake. No thermal daemon is killed or disabled.
-          if number("Ftst") != 1 {
-            try writeNumber("Ftst", 1)
-            Thread.sleep(forTimeInterval: 3)
-          }
-          // Keep the handshake bounded so heartbeat and restoration stay responsive.
-          var lastError: Error?
-          for _ in 0..<15 {
-            do {
-              try writeNumber(key, 1)
-              lastError = nil
-              break
-            } catch {
-              lastError = error
-              Thread.sleep(forTimeInterval: 0.1)
-            }
-          }
-          if let lastError { throw lastError }
-        }
-        guard number(key) == 1 else { throw FanError("Firmware refused manual fan mode.") }
-      }
+      try FanAcquisition.acquire(
+        deadline: deadline, cancelled: controlCancelled,
+        readMode: { self.number(key) }, writeManual: { try self.writeNumber(key, 1) },
+        readUnlock: { self.number("Ftst") }, writeUnlock: { try self.writeNumber("Ftst", 1) })
       // The unlock can take seconds. Recheck temperature before issuing a low target.
       let fresh = try self.snapshot()
       guard fresh.completeSensorReadings, let hottest = fresh.hottest else {
         throw FanError("Sensors incomplete after fan-mode handshake.")
       }
       let effectiveTarget = hottest >= 95 || fresh.thermalState >= 2 ? fan.maximum : target
+      guard !controlCancelled() else { throw FanError("Fan-control request cancelled.") }
+      guard ProcessInfo.processInfo.systemUptime < deadline else {
+        throw FanError("Fan-control acquisition deadline expired before target write.")
+      }
       try writeNumber("F\(fan.id)Tg", effectiveTarget)
       guard let actual = number("F\(fan.id)Tg"), abs(actual - effectiveTarget) < 100 else {
         throw FanError("Fan target readback failed.")

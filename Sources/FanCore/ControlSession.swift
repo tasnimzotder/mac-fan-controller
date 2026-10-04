@@ -12,6 +12,7 @@ public final class ControlSession {
   private let hardware: FanHardware
   private let beginOverride: () throws -> Void
   private let endOverride: () throws -> Void
+  private let clock: () -> TimeInterval
   private var controller = FanController()
   private var request = HelperRequest(mode: .automatic)
   private var lastHeartbeat: TimeInterval = 0
@@ -22,18 +23,21 @@ public final class ControlSession {
 
   public init(
     hardware: FanHardware, recoveryPending: Bool = false,
-    beginOverride: @escaping () throws -> Void = {}, endOverride: @escaping () throws -> Void = {}
+    beginOverride: @escaping () throws -> Void = {}, endOverride: @escaping () throws -> Void = {},
+    clock: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }
   ) {
     self.hardware = hardware
     self.recoveryPending = recoveryPending
     self.overriding = recoveryPending
     self.beginOverride = beginOverride
     self.endOverride = endOverride
+    self.clock = clock
   }
 
   public func command(
     _ request: HelperRequest, uptime: TimeInterval = ProcessInfo.processInfo.systemUptime
   ) -> HelperReply {
+    let started = clock()
     do {
       if request.mode == .automatic {
         // An explicit command also lets the user recover a retained override.
@@ -59,6 +63,10 @@ public final class ControlSession {
         overriding = true
       }
       if let targets { try hardware.apply(targets) }
+      let acquisitionDuration = max(0, clock() - started)
+      lastHeartbeat = uptime + acquisitionDuration
+      // Do not treat firmware acquisition time as a missed temperature sample.
+      if acquisitionDuration >= 6 { controller.reset() }
       failure = nil
     } catch {
       failure = error.localizedDescription

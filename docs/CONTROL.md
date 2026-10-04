@@ -23,6 +23,10 @@ These are initial engineering parameters, not calibrated hardware limits or an A
 
 The UI sends a heartbeat about every two seconds. The helper runs its own one-second loop. XPC messages are restricted by the kernel to the exact bundled peer's code-directory hash in both directions. A single connection holds the controller lease. No arbitrary SMC key, command execution, filesystem path, or privileged SQLite operation is exposed over XPC.
 
+Fan-mode acquisition has a ten-second monotonic deadline shared across all fans. It tries direct mode writes, then uses the firmware unlock key when available and retries at 100 ms intervals, checking mode readback. XPC disconnection or sleep cancels acquisition between operations. The UI allows twenty seconds for a response, including recovery. The normal eight-second heartbeat lease starts after acquisition completes. An individual blocking IOKit call cannot be interrupted by this software deadline.
+
+The UI marks recovery as unconfirmed after a timeout/disconnection; it does not claim Apple control until a successful helper response. Helper logs record request mode, elapsed time, and returned errors for diagnosis.
+
 Before the first write, the helper syncs a marker inside a root-owned, mode-0700 recovery directory. It removes that marker only after restoration succeeds. On restart, a retained marker starts recovery; without it, an idle helper does not reset another app's fans. Initial temperature validation and journal errors prevent fan writes.
 
 Stale readings, sampling gaps, invalid limits, write/readback errors, connection invalidation, or an eight-second heartbeat expiry stop requests and attempt restoration. Failed restoration remains visible and is retried once per second. Sleep selects Apple automatic; wake remains automatic. SIGTERM/SIGINT attempt cleanup. A launchd KeepAlive job restarts a crashed helper so the marker can be recovered.

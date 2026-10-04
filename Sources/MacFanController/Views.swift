@@ -9,14 +9,33 @@ struct ContentView: View {
   var body: some View {
     VStack(spacing: 0) {
       HStack(spacing: 12) {
-        Image(systemName: "fanblades.fill").font(.system(size: 27)).foregroundStyle(.mint)
+        Image(systemName: "fanblades.fill")
+          .font(.system(size: 25, weight: .medium)).foregroundStyle(.mint)
+          .frame(width: 48, height: 48)
+          .background(.mint.opacity(0.12), in: RoundedRectangle(cornerRadius: 14))
         VStack(alignment: .leading, spacing: 3) {
           Text("Mac Fan Controller").font(.headline)
-          Text(model.demo ? "Demo · simulated readings" : model.mode.title).font(.caption)
+          Text(
+            model.demo
+              ? "Demo · simulated readings"
+              : (model.recoveryUnconfirmed
+                ? "Apple-control recovery unconfirmed"
+                : (model.busy ? "Requesting control…" : model.mode.title))
+          ).font(.caption)
             .foregroundStyle(.secondary)
         }
         Spacer()
-        Circle().fill(model.mode == .automatic ? Color.secondary : .mint).frame(width: 7, height: 7)
+        Label(
+          model.demo
+            ? "Demo"
+            : (model.recoveryUnconfirmed
+              ? "Check helper"
+              : (model.busy ? "Connecting" : (model.snapshot == nil ? "Waiting" : "Live"))),
+          systemImage: model.demo ? "play.rectangle" : (model.busy ? "clock" : "waveform.path")
+        )
+        .font(.caption2.weight(.medium)).foregroundStyle(.secondary)
+        .padding(.horizontal, 9).padding(.vertical, 6)
+        .background(.quaternary, in: Capsule())
       }.padding(20)
       Picker("Screen", selection: $tab) {
         Text("Control").tag(0)
@@ -26,10 +45,11 @@ struct ContentView: View {
       ScrollView {
         VStack(alignment: .leading, spacing: 18) {
           if let error = model.error {
-            Label(error, systemImage: "exclamationmark.triangle").font(.caption).foregroundStyle(
-              .orange
-            ).padding(12).frame(maxWidth: .infinity, alignment: .leading).background(
-              .orange.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+            Label(error, systemImage: "exclamationmark.triangle.fill").font(.callout)
+              .foregroundStyle(
+                .orange
+              ).padding(12).frame(maxWidth: .infinity, alignment: .leading).background(
+                .orange.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
           }
           switch tab {
           case 1: historyView
@@ -64,25 +84,68 @@ struct ContentView: View {
       }
       if model.snapshot?.fans.isEmpty == true {
         Label(
-          "This Mac is fanless. Temperature monitoring is available; fan control needs a MacBook Pro.",
+          "No hardware fans detected. Temperature monitoring remains available.",
           systemImage: "info.circle"
         ).font(.callout).foregroundStyle(.secondary)
       }
       VStack(alignment: .leading, spacing: 10) {
         Text("COOLING MODE").font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
-        Picker("Cooling mode", selection: Binding(get: { model.mode }, set: { model.setMode($0) }))
+        LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
+          ForEach(ControlMode.allCases, id: \.self) { mode in
+            Button {
+              model.setMode(mode)
+            } label: {
+              HStack(spacing: 8) {
+                Image(systemName: modeSymbol(mode)).frame(width: 18)
+                Text(mode.title).font(.caption.weight(.medium))
+                Spacer(minLength: 0)
+                if model.mode == mode && !model.recoveryUnconfirmed {
+                  Image(systemName: "checkmark.circle.fill")
+                }
+              }.padding(11).frame(maxWidth: .infinity, alignment: .leading)
+                .foregroundStyle(
+                  model.mode == mode && !model.recoveryUnconfirmed ? Color.mint : Color.primary
+                )
+                .background(
+                  model.mode == mode && !model.recoveryUnconfirmed
+                    ? Color.mint.opacity(0.12) : Color.secondary.opacity(0.07),
+                  in: RoundedRectangle(cornerRadius: 10)
+                )
+                .overlay(
+                  RoundedRectangle(cornerRadius: 10)
+                    .stroke(
+                      model.mode == mode && !model.recoveryUnconfirmed
+                        ? Color.mint.opacity(0.4) : Color.clear, lineWidth: 1))
+            }.buttonStyle(.plain)
+              .disabled(model.busy || (mode != .automatic && !controlReady))
+              .accessibilityIdentifier("mode-\(mode.rawValue)")
+              .accessibilityAddTraits(
+                model.mode == mode && !model.recoveryUnconfirmed ? [.isSelected] : [])
+          }
+        }
+        if !model.demo && model.helperStatus != "Enabled" && model.snapshot?.fans.isEmpty == false {
+          Button("Enable fan control in Settings") { tab = 2 }
+            .font(.caption).buttonStyle(.link)
+        }
+        if !model.demo && model.snapshot?.fans.isEmpty == false
+          && (model.snapshot?.completeSensorReadings != true || model.snapshot?.hottest == nil)
         {
-          ForEach(ControlMode.allCases, id: \.self) { Text($0.title).tag($0) }
-        }.labelsHidden().disabled(
-          model.busy || (!model.demo && (model.snapshot?.fans.isEmpty ?? true))
-        ).accessibilityIdentifier("cooling-mode")
-        Text(modeDescription).font(.caption).foregroundStyle(.secondary)
+          Label(
+            "Waiting for complete CPU/GPU temperature readings.", systemImage: "thermometer.medium"
+          )
+          .font(.caption).foregroundStyle(.secondary)
+        }
+        Text(
+          model.recoveryUnconfirmed
+            ? "The helper has not confirmed recovery. Retry Apple automatic to verify fan state."
+            : modeDescription
+        ).font(.caption).foregroundStyle(.secondary)
         if model.busy { ProgressView("Requesting fan control…").controlSize(.small) }
       }
       ForEach(model.snapshot?.fans ?? []) { fan in
         VStack(alignment: .leading, spacing: 8) {
           HStack {
-            Text(fan.id == 0 ? "Left fan" : "Right fan").font(.subheadline.weight(.medium))
+            Label("Fan \(fan.id + 1)", systemImage: "fanblades").font(.subheadline.weight(.medium))
             Spacer()
             Text("\(Int(fan.rpm)) RPM").font(.system(.subheadline, design: .monospaced))
           }
@@ -91,7 +154,8 @@ struct ContentView: View {
             Text("\(Int(fan.minimum))–\(Int(fan.maximum)) RPM").font(.caption2).foregroundStyle(
               .secondary)
             Spacer()
-            Text(fan.mode == 1 ? "Manual" : "System").font(.caption2).foregroundStyle(.secondary)
+            Text(fan.mode == 1 ? "Manual" : (fan.mode == 0 || fan.mode == 3 ? "System" : "Unknown"))
+              .font(.caption2).foregroundStyle(.secondary)
           }
           if model.mode == .manual {
             Slider(value: manualBinding(fan.id), in: 0...1) {
@@ -125,6 +189,21 @@ struct ContentView: View {
       }
       Button("Return to Apple automatic") { model.setMode(.automatic) }.disabled(model.busy)
         .accessibilityIdentifier("apple-automatic")
+    }
+  }
+  private var controlReady: Bool {
+    if model.demo { return true }
+    guard model.helperStatus == "Enabled", let snapshot = model.snapshot else { return false }
+    return !snapshot.fans.isEmpty && snapshot.fans.allSatisfy(\.controllable)
+      && snapshot.completeSensorReadings && snapshot.hottest != nil
+  }
+  private func modeSymbol(_ mode: ControlMode) -> String {
+    switch mode {
+    case .automatic: return "apple.logo"
+    case .performance: return "bolt.fill"
+    case .balanced: return "scale.3d"
+    case .quiet: return "leaf"
+    case .manual: return "slider.horizontal.3"
     }
   }
   private var modeDescription: String {
@@ -191,10 +270,18 @@ struct ContentView: View {
   }
   private var settingsView: some View {
     VStack(alignment: .leading, spacing: 16) {
-      Text("Menu bar").font(.headline)
+      HStack {
+        Image(systemName: "gearshape.fill").foregroundStyle(.mint)
+        VStack(alignment: .leading, spacing: 4) {
+          Text("Preferences").font(.headline)
+          Text("Display, history, and fan-control access").font(.caption).foregroundStyle(
+            .secondary)
+        }
+      }
+      Text("Menu bar").font(.subheadline.weight(.semibold))
       Toggle("Show temperature", isOn: $model.settings.showTemperature)
       Toggle("Show fan RPM", isOn: $model.settings.showRPM)
-      Toggle("Show both fans", isOn: $model.settings.showBothFans).disabled(!model.settings.showRPM)
+      Toggle("Show each fan", isOn: $model.settings.showBothFans).disabled(!model.settings.showRPM)
       Divider()
       Toggle(
         "Launch at login", isOn: Binding(get: { model.loginEnabled }, set: { model.setLogin($0) })
@@ -206,19 +293,37 @@ struct ContentView: View {
       }
       Divider()
       Text("Fan-control helper").font(.headline)
-      Text(model.helperStatus).font(.caption).foregroundStyle(.secondary)
+      Label(
+        model.helperStatus,
+        systemImage: model.helperStatus == "Enabled" ? "checkmark.shield" : "shield.lefthalf.filled"
+      )
+      .font(.caption.weight(.medium))
+      .foregroundStyle(model.helperStatus == "Enabled" ? Color.mint : Color.secondary)
+      .padding(10).frame(maxWidth: .infinity, alignment: .leading)
+      .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 10))
       Text(
         "Administrator approval enables fan writes. Monitoring works without it. The helper returns to Apple control if the app heartbeat stops."
       ).font(.caption).foregroundStyle(.secondary)
       HStack {
         Button("Enable helper") { model.installHelper() }.disabled(
-          model.demo || model.snapshot?.fans.isEmpty == true)
+          model.demo || model.busy || model.snapshot?.fans.isEmpty == true)
         Button("Remove helper") { model.uninstallHelper() }.disabled(
           model.demo || model.helperStatus != "Enabled" || model.busy)
       }
       Text("Every launch starts in Apple automatic. Use one fan-control app at a time.").font(
         .caption
       ).foregroundStyle(.secondary)
+      Divider()
+      HStack {
+        Text("App version")
+        Spacer()
+        Text(
+          Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+            ?? "Development build"
+        )
+        .textSelection(.enabled)
+        .accessibilityIdentifier("app-version")
+      }.font(.caption).foregroundStyle(.secondary)
     }.onChange(of: model.settings) { _ in model.saveSettings() }
   }
 }

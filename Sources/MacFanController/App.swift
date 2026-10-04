@@ -74,7 +74,8 @@ import SwiftUI
     button.imagePosition = .imageLeading
     button.title = model.trayTitle
     button.font = .monospacedDigitSystemFont(ofSize: 12, weight: .regular)
-    button.toolTip = "Mac Fan Controller · \(model.mode.title)"
+    button.toolTip =
+      "Mac Fan Controller · \(model.recoveryUnconfirmed ? "Recovery unconfirmed" : model.mode.title)"
   }
   @objc private func toggle() {
     if NSApp.currentEvent?.type == .rightMouseUp {

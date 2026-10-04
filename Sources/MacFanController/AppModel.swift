@@ -11,6 +11,8 @@ import SwiftUI
   @Published var error: String?
   @Published var helperStatus = "Not installed"
   @Published var busy = false
+  @Published var recoveryUnconfirmed = false
+  private var requestFailure: ((String) -> Void)?
   @Published var loginEnabled = false
   var onUpdate: (() -> Void)?
   private let monitor = Monitor()
@@ -42,7 +44,13 @@ import SwiftUI
     ) { [weak self] _ in
       Task { @MainActor in
         self?.sleeping = true
-        self?.setMode(.automatic)
+        if self?.pending == true {
+          self?.connection?.invalidate()
+          self?.requestFailure?(
+            "Sleep cancelled fan acquisition; Apple-control recovery is unconfirmed.")
+        } else {
+          self?.setMode(.automatic)
+        }
       }
     }
     wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
@@ -51,6 +59,9 @@ import SwiftUI
       Task { @MainActor in
         self?.sleeping = false
         self?.mode = .automatic
+        if self?.recoveryUnconfirmed == true && self?.service.status == .enabled {
+          self?.setMode(.automatic)
+        }
         self?.poll()
       }
     }
@@ -85,12 +96,15 @@ import SwiftUI
     }
   }
   func installHelper() {
-    guard !demo else { return }
+    guard !demo, !busy, !pending else { return }
     do {
       if service.status != .enabled { try service.register() }
       refreshHelperStatus()
       if service.status == .requiresApproval { SMAppService.openSystemSettingsLoginItems() }
-      if service.status == .enabled { send(.init(mode: .automatic)) }
+      if service.status == .enabled {
+        busy = true
+        send(.init(mode: .automatic))
+      }
     } catch { self.error = error.localizedDescription }
   }
   func uninstallHelper() {
@@ -126,7 +140,7 @@ import SwiftUI
       completion?(true)
       return
     }
-    guard !busy else {
+    guard !busy, !pending else {
       completion?(false)
       return
     }
@@ -145,6 +159,12 @@ import SwiftUI
       }
     }
     if value == .automatic && connection == nil && service.status != .enabled {
+      if recoveryUnconfirmed {
+        error =
+          "Recovery is unconfirmed. Enable the helper to verify Apple automatic before quitting."
+        completion?(false)
+        return
+      }
       mode = .automatic
       completion?(true)
       return
@@ -170,18 +190,24 @@ import SwiftUI
     let c = NSXPCConnection(machServiceName: helperLabel, options: .privileged)
     c.remoteObjectInterface = NSXPCInterface(with: FanHelperProtocol.self)
     c.setCodeSigningRequirement(try signingRequirement(for: peer))
-    c.invalidationHandler = { [weak self] in
+    c.invalidationHandler = { [weak self, weak c] in
       Task { @MainActor in
-        self?.connection = nil
-        self?.mode = .automatic
-        self?.pending = false
-        self?.busy = false
+        guard let self, let c, self.connection === c else { return }
+        self.connection = nil
+        self.recoveryUnconfirmed = true
+        if let failure = self.requestFailure {
+          failure("Helper disconnected. Apple-control recovery is not confirmed.")
+        } else {
+          self.mode = .automatic
+          self.error = "Helper disconnected. Apple-control recovery is not confirmed."
+          self.onUpdate?()
+        }
       }
     }
-    c.interruptionHandler = { [weak self] in
+    c.interruptionHandler = { [weak self, weak c] in
       Task { @MainActor in
-        self?.connection?.invalidate()
-        self?.error = "Helper interrupted. Apple-control recovery is pending; check fan state."
+        guard let self, let c, self.connection === c else { return }
+        c.invalidate()
       }
     }
     c.resume()
@@ -205,15 +231,19 @@ import SwiftUI
       Task { @MainActor in
         guard let self, self.activeRequest == token else { return }
         self.activeRequest = nil
+        self.requestFailure = nil
         self.pending = false
         self.busy = false
-        if let response {
+        if let response, !(self.sleeping && response.mode != .automatic) {
+          self.recoveryUnconfirmed = response.error?.contains("restoration failed") == true
           self.mode = response.mode
           self.error = response.error
           completion?(response.error == nil)
         } else {
+          self.recoveryUnconfirmed = true
           self.mode = .automatic
-          self.error = message
+          self.error =
+            message ?? "Sleep cancelled fan acquisition; Apple-control recovery is unconfirmed."
           self.connection?.invalidate()
           self.connection = nil
           completion?(false)
@@ -221,6 +251,7 @@ import SwiftUI
         self.onUpdate?()
       }
     }
+    requestFailure = { message in finish(nil, message) }
     do {
       let c = try connect()
       guard
@@ -232,7 +263,7 @@ import SwiftUI
           finish(nil, "Invalid helper response.")
         }
       }
-      DispatchQueue.main.asyncAfter(deadline: .now() + 7) {
+      DispatchQueue.main.asyncAfter(deadline: .now() + FanAcquisition.requestTimeout) {
         finish(nil, "Helper timed out; awaiting Apple-control recovery.")
       }
     } catch { finish(nil, error.localizedDescription) }
@@ -301,12 +332,15 @@ import SwiftUI
     return parts.joined(separator: " · ")
   }
   func quit(_ completion: @escaping (Bool) -> Void) {
-    timer?.invalidate()
-    if mode == .automatic && connection == nil {
+    if mode == .automatic && connection == nil && !recoveryUnconfirmed {
+      timer?.invalidate()
       completion(true)
       return
     }
-    setMode(.automatic) { success in completion(success) }
+    setMode(.automatic) { [weak self] success in
+      if success { self?.timer?.invalidate() }
+      completion(success)
+    }
   }
 }
 

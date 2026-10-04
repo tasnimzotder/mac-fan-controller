@@ -7,6 +7,7 @@ private final class Hardware: FanHardware {
   var writeFails = false, restoreFails = false, readingsFail = false
   var temperature = 65.0
   var sequence = 0
+  var onApply: (() -> Void)?
   func snapshot() throws -> Snapshot {
     if readingsFail { throw FanError("sensor read failed") }
     sequence += 1
@@ -17,6 +18,7 @@ private final class Hardware: FanHardware {
   }
   func apply(_ targets: [Int: Double]) throws {
     writes += 1
+    onApply?()
     if writeFails { throw FanError("firmware rejected target") }
   }
   func restoreAutomatic() throws {
@@ -25,9 +27,21 @@ private final class Hardware: FanHardware {
   }
 }
 final class SessionTests: XCTestCase {
+  func testSlowAcquisitionGetsLeaseAfterCompletion() {
+    let hardware = Hardware()
+    var time = 10.0
+    hardware.onApply = { time = 19 }
+    let session = ControlSession(hardware: hardware, clock: { time })
+    XCTAssertNil(session.command(.init(mode: .performance), uptime: 10).error)
+    session.tick(uptime: 20)
+    XCTAssertEqual(session.mode, .performance)
+    session.tick(uptime: 27)
+    XCTAssertEqual(session.mode, .automatic)
+    XCTAssertEqual(hardware.restores, 1)
+  }
   func testIdleSessionDoesNotChangeOtherAppsFanState() {
     let hardware = Hardware()
-    let session = ControlSession(hardware: hardware)
+    let session = ControlSession(hardware: hardware, clock: { 0 })
     session.tick(uptime: 10)
     session.release()
     XCTAssertEqual(hardware.writes, 0)
@@ -35,7 +49,7 @@ final class SessionTests: XCTestCase {
   }
   func testHeartbeatExpiryRestoresAndStopsWriting() {
     let hardware = Hardware()
-    let session = ControlSession(hardware: hardware)
+    let session = ControlSession(hardware: hardware, clock: { 0 })
     XCTAssertNil(session.command(.init(mode: .performance), uptime: 10).error)
     session.tick(uptime: 17)
     XCTAssertEqual(hardware.writes, 2)
@@ -74,7 +88,7 @@ final class SessionTests: XCTestCase {
   func testPartialWriteFailureRestores() {
     let hardware = Hardware()
     hardware.writeFails = true
-    let session = ControlSession(hardware: hardware)
+    let session = ControlSession(hardware: hardware, clock: { 0 })
     let response = session.command(.init(mode: .performance), uptime: 10)
     XCTAssertNotNil(response.error)
     XCTAssertEqual(response.mode, .automatic)
@@ -82,7 +96,7 @@ final class SessionTests: XCTestCase {
   }
   func testFailedRestorationIsRetriedAndNeverClaimsSuccess() {
     let hardware = Hardware()
-    let session = ControlSession(hardware: hardware)
+    let session = ControlSession(hardware: hardware, clock: { 0 })
     _ = session.command(.init(mode: .performance), uptime: 10)
     hardware.restoreFails = true
     session.release()
@@ -107,7 +121,7 @@ final class SessionTests: XCTestCase {
   }
   func testSensorFailureDuringControlReleases() {
     let hardware = Hardware()
-    let session = ControlSession(hardware: hardware)
+    let session = ControlSession(hardware: hardware, clock: { 0 })
     _ = session.command(.init(mode: .performance), uptime: 10)
     hardware.readingsFail = true
     session.tick(uptime: 11)
@@ -117,7 +131,7 @@ final class SessionTests: XCTestCase {
   }
   func testMalformedManualRequestNeverWrites() {
     let hardware = Hardware()
-    let session = ControlSession(hardware: hardware)
+    let session = ControlSession(hardware: hardware, clock: { 0 })
     let response = session.command(.init(mode: .manual, fractions: [-1]), uptime: 10)
     XCTAssertNotNil(response.error)
     XCTAssertEqual(hardware.writes, 0)
@@ -125,7 +139,7 @@ final class SessionTests: XCTestCase {
   func testExplicitAppleModeIsVerified() {
     let hardware = Hardware()
     hardware.restoreFails = true
-    let session = ControlSession(hardware: hardware)
+    let session = ControlSession(hardware: hardware, clock: { 0 })
     let response = session.command(.init(mode: .automatic), uptime: 10)
     XCTAssertNotNil(response.error)
     XCTAssertTrue(session.recoveryPending)
