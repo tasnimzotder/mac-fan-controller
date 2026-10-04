@@ -6,7 +6,7 @@ SwiftUI screens in an AppKit popover, with no Dock icon. The default is Apple au
 
 - Configurable temperature and fan RPM in the menu bar, including both fans.
 - Independent manual sliders or synchronized control relative to each fan's range.
-- Performance cooling with temperature curves, bounded trend lookahead, hysteresis, quick ramp-up, and gradual ramp-down.
+- Performance cooling with temperature curves, filtered PID feedback with anti-windup, hysteresis, quick ramp-up, and gradual ramp-down.
 - Thermal-pressure/high-temperature override, helper heartbeat, and crash-recovery marker.
 - Temperature and fan-speed charts; 1, 7, or 30 days of history.
 - Launch at login through macOS Service Management.

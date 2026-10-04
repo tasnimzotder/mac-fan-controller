@@ -6,7 +6,7 @@ public struct CurvePoint: Equatable {
 }
 public struct FanController {
   private var filtered: Double?
-  private var previousTemperature: Double?
+  private var pid = ThermalPID()
   private var previousDate: Date?
   private var lastTargets: [Int: Double] = [:]
   private var coolingSince: [Int: Date] = [:]
@@ -70,13 +70,22 @@ public struct FanController {
     let tau = raw > old ? 2.0 : 10.0
     let temperature = old + (raw - old) * (1 - exp(-dt / tau))
     filtered = temperature
-    let trend = previousTemperature.map { max(0, (raw - $0) / dt) } ?? 0
-    previousTemperature = raw
     previousDate = snapshot.date
     let emergency = raw >= 95 || snapshot.thermalState >= 2
-    // Short bounded lookahead anticipates rapidly increasing load, not a PID integral.
-    let predicted = max(raw, temperature) + min(5, trend * 2)
-    let proportion = Self.fraction(temperature: predicted, mode: mode)
+    // The curve is feedforward; PID adds cooling for sustained error and rising load.
+    let baseline = Self.fraction(temperature: max(raw, temperature), mode: mode)
+    let delivered = snapshot.fans.compactMap { fan -> Double? in
+      guard let target = lastTargets[fan.id] else { return nil }
+      return (target - fan.minimum) / (fan.maximum - fan.minimum)
+    }.min()
+    let proportion: Double
+    if let tuning = ThermalPID.Tuning.preset(mode) {
+      proportion = pid.update(
+        temperature: temperature, dt: dt, baseline: baseline, tuning: tuning,
+        deliveredFraction: delivered, emergency: emergency)
+    } else {
+      proportion = baseline
+    }
     var targets: [Int: Double] = [:]
     for (index, fan) in snapshot.fans.enumerated() {
       if mode == .manual {

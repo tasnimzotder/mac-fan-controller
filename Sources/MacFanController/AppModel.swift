@@ -21,6 +21,7 @@ import SwiftUI
   private var storage: Storage?
   private var connection: NSXPCConnection?
   private var timer: Timer?
+  private var helperResponding = false
   private var pending = false
   private var lastRecord = Date.distantPast
   private var sleepObserver: NSObjectProtocol?
@@ -92,7 +93,7 @@ import SwiftUI
       return
     }
     switch service.status {
-    case .enabled: helperStatus = "Enabled"
+    case .enabled: helperStatus = helperResponding ? "Connected" : "Registered · connection unverified"
     case .requiresApproval: helperStatus = "Approval needed in System Settings"
     case .notRegistered: helperStatus = "Not installed"
     case .notFound: helperStatus = "Helper not found"
@@ -110,17 +111,31 @@ import SwiftUI
       busy = true
         send(.init(mode: .automatic))
       }
-    } catch { self.error = error.localizedDescription }
+    } catch {
+      refreshHelperStatus()
+      if service.status == .requiresApproval {
+        self.error = nil
+        SMAppService.openSystemSettingsLoginItems()
+      } else {
+        self.error = error.localizedDescription
+      }
+    }
   }
   func uninstallHelper() {
     setMode(.automatic) { [weak self] success in
       guard let self, success else { return }
-      do {
-        self.connection?.invalidate()
-        self.connection = nil
-        try self.service.unregister()
-        self.refreshHelperStatus()
-      } catch { self.error = error.localizedDescription }
+      self.busy = true
+      self.controlProgress = "Removing helper…"
+      Task { @MainActor in
+        defer { self.busy = false }
+        do {
+          self.connection?.invalidate()
+          self.connection = nil
+          self.helperResponding = false
+          try await self.service.unregister()
+          self.refreshHelperStatus()
+        } catch { self.error = error.localizedDescription }
+      }
     }
   }
   func setLogin(_ enabled: Bool) {
@@ -216,6 +231,8 @@ import SwiftUI
       Task { @MainActor in
         guard let self, let c, self.connection === c else { return }
         self.connection = nil
+        self.helperResponding = false
+        self.refreshHelperStatus()
         self.recoveryUnconfirmed = true
         if let failure = self.requestFailure {
           failure("Helper disconnected. Apple-control recovery is not confirmed.")
@@ -257,11 +274,15 @@ import SwiftUI
         self.pending = false
         self.busy = false
         if let response, !(self.sleeping && response.mode != .automatic) {
+          self.helperResponding = true
+          self.refreshHelperStatus()
           self.recoveryUnconfirmed = response.error?.contains("restoration failed") == true
           self.mode = response.mode
           self.error = response.error
           completion?(response.error == nil)
         } else {
+          self.helperResponding = false
+          self.refreshHelperStatus()
           self.recoveryUnconfirmed = true
           self.mode = .automatic
           self.error =

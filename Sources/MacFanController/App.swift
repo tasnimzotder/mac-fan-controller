@@ -12,6 +12,14 @@ import SwiftUI
       Maintenance.verifyPerformance()
       return
     }
+    if CommandLine.arguments.contains("--restore-automatic") {
+      Maintenance.restoreAutomatic()
+      return
+    }
+    if CommandLine.arguments.contains("--prepare-update") {
+      Maintenance.repairHelper(register: false)
+      return
+    }
     if CommandLine.arguments.contains("--repair-helper") {
       Maintenance.repairHelper()
       return

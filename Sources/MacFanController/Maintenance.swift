@@ -85,7 +85,21 @@ import ServiceManagement
   }
 
   /// Refresh a stale launchd signature pin only when firmware already owns all fans.
-  static func repairHelper() {
+  static func restoreAutomatic() {
+    guard getuid() == 0 else {
+      fputs("Automatic recovery requires administrator authorization.\n", stderr)
+      exit(1)
+    }
+    do {
+      try SMC().restoreAutomatic()
+      print("Apple automatic modes, zero targets, and unlock release verified.")
+    } catch {
+      fputs("Automatic recovery failed: \(error.localizedDescription)\n", stderr)
+      exit(1)
+    }
+  }
+
+  static func repairHelper(register: Bool = true) {
     Task { @MainActor in
       do {
         guard NSRunningApplication.runningApplications(
@@ -96,13 +110,20 @@ import ServiceManagement
         let hardware = try SMC()
         let snapshot = try hardware.snapshot()
         guard snapshot.fans.allSatisfy({ $0.mode == 0 || $0.mode == 3 }),
+          snapshot.fans.allSatisfy({ hardware.number("F\($0.id)Tg") == 0 }),
           hardware.number("Ftst") != 1
         else { throw FanError("Repair aborted: fans must be in Apple automatic mode.") }
         let service = SMAppService.daemon(plistName: helperLabel + ".plist")
         if service.status != .notRegistered && service.status != .notFound {
           try await service.unregister()
         }
-        try service.register()
+        if !register {
+          print("Apple automatic verified; helper unregistered for update.")
+          exit(0)
+        }
+        do { try service.register() } catch {
+          guard service.status == .requiresApproval else { throw error }
+        }
         if service.status == .requiresApproval {
           SMAppService.openSystemSettingsLoginItems()
           print("Helper registered; approval required in System Settings.")

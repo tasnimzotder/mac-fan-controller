@@ -6,8 +6,8 @@ Apple automatic is the startup default. Selecting a preset or manual mode explic
 
 1. Read the hottest known CPU/GPU temperature every second in the helper. Known CPU/GPU keys for M1–M5 generations are probed without a fan-control model allowlist. Sensor keys remain generation-specific because their meanings can differ. Every sensor discovered initially must continue returning a plausible reading; missing/invalid readings release control. Models without readable CPU/GPU keys remain monitoring-only; unrelated battery/board temperatures are never used as a fallback.
 2. Filter temperature using a two-second rising and ten-second falling time constant. Use the greater of raw and filtered temperature, so rising temperature is never hidden by smoothing.
-3. Add a bounded trend lookahead: `min(5°C, max(0, temperature slope) × 2 seconds)`. Interpolate the selected curve.
-4. Map the fraction to each fan's own firmware minimum/maximum. Synchronized manual mode means equal fractions, allowing different absolute RPM for different fans.
+3. Evaluate the preset curve at the greater of raw and filtered temperature. This is feedforward cooling, normalized to each fan's hardware range.
+4. Add cooling-action PID feedback: `e = filteredTemperature - setpoint`, `P = Kp*e`, `I += Ki*(e + previousError)*dt/2`, and `D = Kd*filteredTemperatureRate`. Derivative is on measurement with a three-second exponential low-pass filter; rising temperature increases cooling. Integrate using actual elapsed sample time. Clamp correction to 0–35% of fan range, integral to 0–20%, and combined demand to 100%. Negative error unwinds the integral; feedback never lowers the curve's cooling floor. Pause positive integration at output saturation or when the previous demand exceeds the ramp-limited target by more than four percentage points. Emergency cooling clears the integral. Preset changes reset all feedback state.
 5. Apply a 150 RPM deadband. Increase at up to 1,200 RPM/second. Hold reductions for 15 continuous seconds, then decrease by at most 100 RPM/second. Each fan has its own cooling-hold state.
 6. At a raw temperature of 95°C or serious/critical macOS thermal pressure, request each fan's full hardware range immediately, including manual mode. Fresh sensors are checked again after a potentially slow unlock handshake.
 
@@ -19,7 +19,17 @@ Apple automatic is the startup default. Selecting a preset or manual mode explic
 
 Turbo requests every fan's hardware maximum immediately. Selecting another preset applies its lower target immediately; temperature-driven reductions within a preset keep the cooling hold and gradual ramp-down.
 
-These are initial engineering parameters, not calibrated hardware limits or an Apple recommendation. Performance mode intentionally makes more noise and spends more fan power. A closed-loop PID without identified thermal dynamics would add tuning uncertainty; a bounded curve is easier to validate for this first version. Manual targets remain between hardware minimum and maximum; a zero fraction means minimum RPM, not a stopped fan. Apple automatic may stop fans at idle.
+These are initial engineering parameters, not calibrated hardware limits or an Apple recommendation. Performance mode intentionally makes more noise and spends more fan power. PID gains are conservative starting values, not calibrated thermal models. Workload and acoustic tuning is still required on each hardware family. PID tuning (output units are fractions of fan range):
+
+| Preset | Setpoint °C | Kp /°C | Ki /(°C·s) | Kd s/°C |
+| --- | --- | --- | --- | --- |
+| Performance | 65 | 0.012 | 0.0008 | 0.025 |
+| Balanced | 75 | 0.010 | 0.0006 | 0.020 |
+| Quiet | 82 | 0.008 | 0.0004 | 0.015 |
+
+Setpoints are feedback references, not guaranteed temperatures or Apple limits. Turbo and manual bypass PID; sensor validation and emergency protection remain active.
+
+Manual targets remain between hardware minimum and maximum; a zero fraction means minimum RPM, not a stopped fan. Apple automatic may stop fans at idle.
 
 ## Ownership and recovery
 
