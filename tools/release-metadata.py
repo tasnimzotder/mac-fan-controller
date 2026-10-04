@@ -30,7 +30,9 @@ def render(repository, dist, tag=None):
     sha = hashlib.sha256(dmg.read_bytes()).hexdigest()
     template = (ROOT / ".github/homebrew/mac-fan-controller.rb.template").read_text()
     cask = template.replace("{{VERSION}}", version).replace("{{SHA256}}", sha).replace("{{REPOSITORY}}", repository)
-    if "{{" in cask or "}}" in cask:
+    # Homebrew expands appdir when executing declarative postflight steps.
+    unresolved = cask.replace("{{appdir}}", "")
+    if "{{" in unresolved or "}}" in unresolved:
         raise ValueError("Cask contains unresolved template fields")
     (dist / "mac-fan-controller.rb").write_text(cask)
     (dist / "SHA256SUMS").write_text(f"{sha}  {name}\n")

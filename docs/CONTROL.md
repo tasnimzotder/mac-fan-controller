@@ -4,7 +4,7 @@ Apple automatic is the startup default. Selecting a preset or manual mode explic
 
 ## Performance algorithm
 
-1. Read the hottest known CPU/GPU temperature every second in the helper. M2 and M3 sensor sets are selected by the actual chip generation. Every sensor discovered initially must continue returning a plausible reading; missing/invalid readings release control. Unknown generations have no control-temperature fallback.
+1. Read the hottest known CPU/GPU temperature every second in the helper. Known CPU/GPU keys for M1–M5 generations are probed without a fan-control model allowlist. Sensor keys remain generation-specific because their meanings can differ. Every sensor discovered initially must continue returning a plausible reading; missing/invalid readings release control. Models without readable CPU/GPU keys remain monitoring-only; unrelated battery/board temperatures are never used as a fallback.
 2. Filter temperature using a two-second rising and ten-second falling time constant. Use the greater of raw and filtered temperature, so rising temperature is never hidden by smoothing.
 3. Add a bounded trend lookahead: `min(5°C, max(0, temperature slope) × 2 seconds)`. Interpolate the selected curve.
 4. Map the fraction to each fan's own firmware minimum/maximum. Synchronized manual mode means equal fractions, allowing different absolute RPM for different fans.
@@ -31,9 +31,9 @@ Restoration releases each manual fan mode, clears forced targets, and releases `
 
 ## Hardware verification required
 
-For each M2 Pro and M3 Pro on macOS 26/27:
+For each fan-equipped Apple Silicon model and macOS version:
 
-- Capture read-only probe output and confirm CPU/GPU sensor selection and both fans' ranges.
+- Capture read-only probe output and confirm CPU/GPU sensor selection and each fan's range.
 - Install in `/Applications`, enable the helper, approve the service, and confirm authenticated XPC connectivity.
 - Exercise each preset and independent/synchronized manual targets; compare target readback and actual RPM during ramp-up and settling.
 - Run a bounded sustained workload, then stop it. Observe temperature, ramp-up, cooling hold, ramp-down, and thermal-pressure response.

@@ -4,7 +4,7 @@
 
 `CI` runs on pull requests, pushes to `main`, and manual dispatch. It validates `VERSION`, runs the Python release-tool tests and Swift core tests with warnings treated as errors, builds the Apple Silicon app/DMG, verifies bundle signatures and DMG integrity, and checks the rendered cask with Ruby and Homebrew style. It uploads the DMG, cask, checksum manifest, and JSON metadata for seven days.
 
-The job uses read-only repository permissions. It never registers the privileged helper, writes fan speeds, updates login items, or changes the tap. macOS runner builds validate packaging, not M2 Pro/M3 Pro behavior.
+The job uses read-only repository permissions. It never registers the privileged helper, writes fan speeds, updates login items, or changes the tap. macOS runner builds validate packaging, not physical fan-control behavior across Apple Silicon models.
 
 ## One-time repository setup
 
@@ -12,7 +12,7 @@ The job uses read-only repository permissions. It never registers the privileged
 - Add an Actions secret named `TAP_TOKEN`: a fine-grained token scoped to `tasnimzotder/homebrew-tap`, with Contents read/write permission. The default GitHub token is scoped to this repository and cannot push to the other repo. The workflow passes the token to `actions/checkout`; it is not embedded in a clone URL.
 - Ensure the tap repository exists and its default branch permits this automation to push. The pipeline stages only `Casks/mac-fan-controller.rb`, preserving other casks.
 - Direct public Homebrew downloads require a public application repository/release. A private repository is fine for development, but the generated release URL is not an unauthenticated public download.
-- Builds are ad-hoc signed by default, matching the existing local build tooling. Developer ID signing and Apple notarization are not implemented in this workflow. Downloaded builds may require macOS Privacy & Security approval. No quarantine-removal hook is added.
+- Builds are ad-hoc signed by default. Developer ID signing and Apple notarization are not implemented in this workflow. The Homebrew cask explicitly removes only `com.apple.quarantine` recursively from the installed app bundle after installation, preserving other extended attributes. This bypasses the download-quarantine warning for Homebrew installs; it does not provide Apple verification. Direct DMG installs may require approval in macOS Privacy & Security.
 
 Permissions follow [GitHub workflow syntax](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax) and cross-repository authentication follows [actions/checkout](https://github.com/actions/checkout).
 

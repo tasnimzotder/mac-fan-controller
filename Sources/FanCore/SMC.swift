@@ -8,24 +8,25 @@ public final class SMC {
   public init() throws {
     let result = mfc_open(&connection)
     guard result == 0 else { throw FanError("AppleSMC unavailable (\(result)).") }
-    // Restrict control input to known CPU/GPU keys, not unrelated battery/board sensors.
-    let known: [String]
-    switch Self.chip {
-    case let chip where chip.hasPrefix("Apple M2"):
-      known = [
-        "Tp1h", "Tp1t", "Tp1p", "Tp1l", "Tp01", "Tp05", "Tp09", "Tp0D", "Tp0X", "Tp0b", "Tp0f",
-        "Tp0j", "Tg0f", "Tg0j",
-      ]
-    case let chip where chip.hasPrefix("Apple M3"):
-      known = [
-        "Te05", "Te0L", "Te0P", "Te0S", "Tf04", "Tf09", "Tf0A", "Tf0B", "Tf0D", "Tf0E", "Tf44",
-        "Tf49", "Tf4A", "Tf4B", "Tf4D", "Tf4E", "Tf14", "Tf18", "Tf19", "Tf1A", "Tf24", "Tf28",
-        "Tf29", "Tf2A",
-      ]
-    default: known = []  // Unknown models stay read-only until their sensors are validated.
-    }
-    sensorKeys = known.sorted().filter { number($0) != nil }
+    // Probe CPU/GPU keys for the generation, without restricting fan control
+    // to particular models. Key meanings can differ between generations.
+    let generation = Int(Self.chip.dropFirst("Apple M".count).prefix(while: { $0.isNumber }))
+    sensorKeys = (generation.flatMap { Self.controlSensorKeys[$0] } ?? []).sorted()
+      .filter { number($0) != nil }
   }
+  static let controlSensorKeys: [Int: [String]] = [
+    1: ["Tg05", "Tg0D", "Tg0L", "Tg0T", "Tp01", "Tp05", "Tp09", "Tp0D", "Tp0H", "Tp0L", "Tp0P", "Tp0T", "Tp0X", "Tp0b"],
+    2: ["Tg0f", "Tg0j", "Tp01", "Tp05", "Tp09", "Tp0D", "Tp0X", "Tp0b", "Tp0f", "Tp0j", "Tp1h", "Tp1l", "Tp1p", "Tp1t"],
+    3: ["Te05", "Te0L", "Te0P", "Te0S", "Tf04", "Tf09", "Tf0A", "Tf0B", "Tf0D", "Tf0E", "Tf14", "Tf18", "Tf19", "Tf1A", "Tf24", "Tf28", "Tf29", "Tf2A", "Tf44", "Tf49", "Tf4A", "Tf4B", "Tf4D", "Tf4E"],
+    4: ["Te05", "Te09", "Te0H", "Te0S", "Tg0G", "Tg0H", "Tg0K", "Tg0L", "Tg0d", "Tg0e", "Tg0j", "Tg0k", "Tg1U", "Tg1k", "Tp01", "Tp05", "Tp09", "Tp0D", "Tp0V", "Tp0Y", "Tp0b", "Tp0e"],
+    5: ["Tg0U", "Tg0X", "Tg0d", "Tg0g", "Tg0j", "Tg1Y", "Tg1c", "Tg1g", "Tp00", "Tp04", "Tp08", "Tp0C", "Tp0G", "Tp0K", "Tp0O", "Tp0R", "Tp0U", "Tp0X", "Tp0a", "Tp0d", "Tp0g", "Tp0j", "Tp0m", "Tp0p", "Tp0u", "Tp0y"],
+  ]
+  public static var supportsControl: Bool {
+    var arm64: Int32 = 0
+    var size = MemoryLayout<Int32>.size
+    return sysctlbyname("hw.optional.arm64", &arm64, &size, nil, 0) == 0 && arm64 == 1
+  }
+
   public static var chip: String {
     var size = 0
     guard sysctlbyname("machdep.cpu.brand_string", nil, &size, nil, 0) == 0, size > 0 else {
@@ -44,7 +45,6 @@ public final class SMC {
     guard sysctlbyname("hw.model", &bytes, &size, nil, 0) == 0 else { return false }
     return ["Mac14,2", "Mac14,15", "Mac15,12", "Mac15,13"].contains(String(cString: bytes))
   }
-  public static var supportsControl: Bool { ["Apple M2 Pro", "Apple M3 Pro"].contains(chip) }
   deinit { mfc_close(connection) }
   private func value(_ key: String) throws -> (bytes: [UInt8], type: String) {
     guard key.utf8.count == 4 else { throw FanError("Invalid SMC key.") }
@@ -127,9 +127,13 @@ public final class SMC {
   }
   public func apply(_ targets: [Int: Double]) throws {
     guard Self.supportsControl else {
-      throw FanError("Fan writes are currently restricted to M2 Pro and M3 Pro Macs.")
+      throw FanError("Fan control requires an Apple Silicon Mac.")
     }
     let snapshot = try snapshot()
+    guard !snapshot.fans.isEmpty else { throw FanError("No hardware fans detected.") }
+    guard snapshot.completeSensorReadings, snapshot.hottest != nil else {
+      throw FanError("CPU/GPU temperature readings unavailable.")
+    }
     guard Set(targets.keys) == Set(snapshot.fans.map(\.id)) else {
       throw FanError("Incomplete fan targets.")
     }

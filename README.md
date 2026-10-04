@@ -14,13 +14,13 @@ SwiftUI screens in an AppKit popover, with no Dock icon. The default is Apple au
 
 ## Status
 
-**Development alpha.** Targets M2 Pro and M3 Pro MacBook Pros on macOS 26 and 27. These Macs have not yet been available for privileged fan-write testing. Live read-only sensors were verified on a fanless M2 MacBook Air running macOS 27. Native controls and charts were exercised using explicitly simulated fans; 25 core tests cover the controller, helper session recovery, and SQLite.
+**Development alpha.** Allows fan control on Apple Silicon Macs with detected, controllable hardware fans and valid CPU/GPU temperature readings. Live read-only sensors were verified on a fanless M2 MacBook Air running macOS 27. Native controls and charts were exercised using explicitly simulated fans; core tests cover the controller, helper session recovery, and SQLite.
 
-SMC access is undocumented and can change with firmware/macOS. Fan writes are currently restricted to M2 Pro and M3 Pro. A helper successfully registering does not establish working hardware control. See [control design and hardware validation](docs/CONTROL.md) and [open-source research](docs/SOURCE_RESEARCH.md).
+SMC access is undocumented and can change with firmware/macOS. There is no chip-model allowlist; fanless Macs remain monitoring-only, and missing sensors or invalid fan limits prevent manual control. A helper successfully registering does not establish working hardware control. See [control design and hardware validation](docs/CONTROL.md) and [open-source research](docs/SOURCE_RESEARCH.md).
 
 ## Build and run
 
-Requires macOS, Xcode or Command Line Tools with Swift 5.9+, and Apple Silicon. The native UI uses APIs available on macOS 13+, while fan-control compatibility targets the machines/OS versions above. No Node, Rust, external Swift package, or network service is required at runtime.
+Requires macOS, Xcode or Command Line Tools with Swift 5.9+, and Apple Silicon. The native UI uses APIs available on macOS 13+, while fan control is gated by runtime hardware capabilities and sensor availability. No Node, Rust, external Swift package, or network service is required at runtime.
 
 ```sh
 make test
@@ -33,7 +33,7 @@ make dmg
 
 `dist/Mac Fan Controller.app` is the built app. Copy it to `/Applications` before enabling the helper or launch at login. In Settings, choose **Enable helper** and approve it in macOS Login Items & Extensions if prompted. Monitoring does not require an administrator. Every launch and wake defaults to Apple automatic.
 
-Builds are ad-hoc signed by default. For a Developer ID build, set `MFC_SIGN_IDENTITY` to your signing identity; public distribution should also notarize the DMG. No release or tap has been published yet.
+Builds are ad-hoc signed and not notarized. For a Developer ID build, set `MFC_SIGN_IDENTITY` to your signing identity; public distribution should also notarize the DMG.
 
 ## Homebrew
 
@@ -42,6 +42,8 @@ The release workflow verifies a tag on `main`, tests and builds the app/DMG, pub
 ```sh
 brew install --cask tasnimzotder/tap/mac-fan-controller
 ```
+
+The cask removes only `com.apple.quarantine` from the installed app bundle, preserving other extended attributes. This avoids the download-quarantine warning for Homebrew installs; it does not provide Apple verification. Direct DMG installs may require **Privacy & Security → Open Anyway**.
 
 The template is [.github/homebrew/mac-fan-controller.rb.template](.github/homebrew/mac-fan-controller.rb.template). Generate a local cask and checksum manifest after `make dmg` using `python3 tools/release-metadata.py`. See [release setup and recovery](docs/RELEASING.md). Its uninstall hook quits the app, verifies Apple restoration, then unregisters the helper; failure aborts cleanup. Remove the helper before upgrading this alpha: exact peer-signature pinning requires the UI and running helper to be from the same build.
 

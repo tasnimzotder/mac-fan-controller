@@ -28,7 +28,8 @@ class ReleaseMetadataTests(unittest.TestCase):
             cask = (dist / 'mac-fan-controller.rb').read_text()
             self.assertIn(f'sha256 "{digest}"', cask)
             self.assertIn('github.com/tasnimzotder/mac-fan-controller', cask)
-            self.assertNotIn('{{', cask)
+            self.assertNotIn('{{', cask.replace('{{appdir}}', ''))
+            self.assertIn('["-r", "-d", "com.apple.quarantine", "{{appdir}}/Mac Fan Controller.app"]', cask)
             self.assertEqual(result['prerelease'], '-' in version)
 
     def test_missing_or_empty_artifact_fails(self):
