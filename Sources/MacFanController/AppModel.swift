@@ -7,10 +7,13 @@ import SwiftUI
   @Published var snapshot: Snapshot?
   @Published var settings = Settings()
   @Published var mode = ControlMode.automatic
+  @Published private(set) var pidTelemetry: PIDTelemetry?
   @Published var history: [HistoryPoint] = []
+  @Published var historyHours = 1
   @Published var error: String?
   @Published var helperStatus = "Not installed"
   @Published var busy = false
+  @Published private(set) var controlProgress = "Requesting fan control…"
   @Published var recoveryUnconfirmed = false
   private var requestFailure: ((String) -> Void)?
   @Published var loginEnabled = false
@@ -19,6 +22,8 @@ import SwiftUI
   private var storage: Storage?
   private var connection: NSXPCConnection?
   private var timer: Timer?
+  @Published private(set) var helperRegistered = false
+  private var helperResponding = false
   private var pending = false
   private var lastRecord = Date.distantPast
   private var sleepObserver: NSObjectProtocol?
@@ -37,7 +42,7 @@ import SwiftUI
       storage = try Storage(path: base + "/" + (demo ? "demo.sqlite3" : "fan-controller.sqlite3"))
       settings = try storage!.settings()
     } catch { self.error = error.localizedDescription }
-    loginEnabled = SMAppService.mainApp.status == .enabled
+    loginEnabled = !demo && InstalledApp.isCurrentBundleInstalled && SMAppService.mainApp.status == .enabled
     refreshHelperStatus()
     sleepObserver = NSWorkspace.shared.notificationCenter.addObserver(
       forName: NSWorkspace.willSleepNotification, object: nil, queue: .main
@@ -59,7 +64,7 @@ import SwiftUI
       Task { @MainActor in
         self?.sleeping = false
         self?.mode = .automatic
-        if self?.recoveryUnconfirmed == true && self?.service.status == .enabled {
+        if self?.recoveryUnconfirmed == true && InstalledApp.isCurrentBundleInstalled && self?.service.status == .enabled {
           self?.setMode(.automatic)
         }
         self?.poll()
@@ -78,17 +83,31 @@ import SwiftUI
       }
     }
     poll()
-    timer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
+    let timer = Timer(timeInterval: 2, repeats: true) { [weak self] _ in
       Task { @MainActor in self?.poll() }
     }
+    RunLoop.main.add(timer, forMode: .common)
+    self.timer = timer
   }
+  var currentPIDTelemetry: PIDTelemetry? {
+    guard let pid = pidTelemetry, pid.mode == mode,
+      Date().timeIntervalSince(pid.date) >= -2,
+      Date().timeIntervalSince(pid.date) < 6 else { return nil }
+    return pid
+  }
+
   func refreshHelperStatus() {
+    helperRegistered = !demo && InstalledApp.isCurrentBundleInstalled && service.status == .enabled
     if demo {
       helperStatus = "Demo · simulated hardware"
       return
     }
+    guard InstalledApp.isCurrentBundleInstalled else {
+      helperStatus = "Install app in Applications"
+      return
+    }
     switch service.status {
-    case .enabled: helperStatus = "Enabled"
+    case .enabled: helperStatus = helperResponding ? "Connected" : "Registered · connection unverified"
     case .requiresApproval: helperStatus = "Approval needed in System Settings"
     case .notRegistered: helperStatus = "Not installed"
     case .notFound: helperStatus = "Helper not found"
@@ -97,40 +116,63 @@ import SwiftUI
   }
   func installHelper() {
     guard !demo, !busy, !pending else { return }
+    guard InstalledApp.isCurrentBundleInstalled else {
+      error = "Install the app in /Applications before enabling its helper."
+      return
+    }
     do {
       if service.status != .enabled { try service.register() }
       refreshHelperStatus()
       if service.status == .requiresApproval { SMAppService.openSystemSettingsLoginItems() }
-      if service.status == .enabled {
-        busy = true
+    if service.status == .enabled {
+      controlProgress = "Connecting to helper…"
+      busy = true
         send(.init(mode: .automatic))
       }
-    } catch { self.error = error.localizedDescription }
+    } catch {
+      refreshHelperStatus()
+      if service.status == .requiresApproval {
+        self.error = nil
+        SMAppService.openSystemSettingsLoginItems()
+      } else {
+        self.error = error.localizedDescription
+      }
+    }
   }
   func uninstallHelper() {
+    guard InstalledApp.isCurrentBundleInstalled, !demo else { return }
     setMode(.automatic) { [weak self] success in
       guard let self, success else { return }
-      do {
-        self.connection?.invalidate()
-        self.connection = nil
-        try self.service.unregister()
-        self.refreshHelperStatus()
-      } catch { self.error = error.localizedDescription }
+      self.busy = true
+      self.controlProgress = "Removing helper…"
+      Task { @MainActor in
+        defer { self.busy = false }
+        do {
+          self.connection?.invalidate()
+          self.connection = nil
+          self.helperResponding = false
+          try await self.service.unregister()
+          self.refreshHelperStatus()
+        } catch { self.error = error.localizedDescription }
+      }
     }
   }
   func setLogin(_ enabled: Bool) {
     do {
+      try InstalledApp.requireInstalledBundle()
       if enabled {
         try SMAppService.mainApp.register()
       } else {
         try SMAppService.mainApp.unregister()
       }
-      loginEnabled = SMAppService.mainApp.status == .enabled
+      loginEnabled = !demo && InstalledApp.isCurrentBundleInstalled && SMAppService.mainApp.status == .enabled
     } catch { self.error = error.localizedDescription }
   }
   func saveSettings() {
     do {
       try storage?.save(settings)
+      historyHours = min(historyHours, settings.historyDays * 24)
+      loadHistory()
       onUpdate?()
     } catch { self.error = error.localizedDescription }
   }
@@ -144,7 +186,21 @@ import SwiftUI
       completion?(false)
       return
     }
+    guard InstalledApp.isCurrentBundleInstalled else {
+      if value == .automatic { completion?(true) } else {
+        error = "Install the app in /Applications before controlling fans."
+        completion?(false)
+      }
+      return
+    }
     if value != .automatic {
+      guard NSRunningApplication.runningApplications(
+        withBundleIdentifier: "com.crystalidea.macsfancontrol"
+      ).isEmpty else {
+        error = "Quit Macs Fan Control before enabling fan control; both apps write the same firmware keys."
+        completion?(false)
+        return
+      }
       guard let snapshot, !snapshot.fans.isEmpty, snapshot.fans.allSatisfy(\.controllable),
         snapshot.hottest != nil
       else {
@@ -169,6 +225,9 @@ import SwiftUI
       completion?(true)
       return
     }
+    if !recoveryUnconfirmed { error = nil }
+    controlProgress = value == .automatic ? "Returning to Apple automatic…"
+      : (mode == .automatic ? "Requesting fan control…" : "Applying preset…")
     busy = true
     send(.init(mode: value, fractions: manualFractions()), completion: completion)
   }
@@ -177,6 +236,11 @@ import SwiftUI
       let i = settings.syncFans ? 0 : index
       return settings.manualFractions.indices.contains(i) ? settings.manualFractions[i] : 0.5
     }
+  }
+  func cancelControlRequest() {
+    guard busy else { return }
+    requestFailure?("Control request cancelled; awaiting Apple-control recovery.")
+    connection?.invalidate()
   }
   func updateManual() {
     saveSettings()
@@ -194,11 +258,14 @@ import SwiftUI
       Task { @MainActor in
         guard let self, let c, self.connection === c else { return }
         self.connection = nil
+        self.helperResponding = false
+        self.refreshHelperStatus()
         self.recoveryUnconfirmed = true
         if let failure = self.requestFailure {
           failure("Helper disconnected. Apple-control recovery is not confirmed.")
         } else {
           self.mode = .automatic
+          self.pidTelemetry = nil
           self.error = "Helper disconnected. Apple-control recovery is not confirmed."
           self.onUpdate?()
         }
@@ -235,13 +302,19 @@ import SwiftUI
         self.pending = false
         self.busy = false
         if let response, !(self.sleeping && response.mode != .automatic) {
+          self.helperResponding = true
+          self.refreshHelperStatus()
           self.recoveryUnconfirmed = response.error?.contains("restoration failed") == true
           self.mode = response.mode
+          self.pidTelemetry = response.error == nil ? response.pid : nil
           self.error = response.error
           completion?(response.error == nil)
         } else {
+          self.helperResponding = false
+          self.refreshHelperStatus()
           self.recoveryUnconfirmed = true
           self.mode = .automatic
+          self.pidTelemetry = nil
           self.error =
             message ?? "Sleep cancelled fan acquisition; Apple-control recovery is unconfirmed."
           self.connection?.invalidate()
@@ -272,9 +345,11 @@ import SwiftUI
   private var reading = false
   func poll() {
     refreshHelperStatus()
-    guard !sleeping, !reading else { return }
+    guard !sleeping else { return }
     if mode != .automatic && !pending && !demo {
       send(.init(mode: mode, fractions: manualFractions()))
+    } else if recoveryUnconfirmed && !pending && !demo && InstalledApp.isCurrentBundleInstalled && service.status == .enabled {
+      send(.init(mode: .automatic, statusOnly: true))
     }
     if demo {
       demoTick += 1
@@ -287,6 +362,7 @@ import SwiftUI
       accept(s)
       return
     }
+    guard !reading else { return }
     reading = true
     monitor.read { [weak self] result in
       Task { @MainActor in
@@ -309,13 +385,18 @@ import SwiftUI
       lastRecord = Date()
       do {
         try storage?.record(s, retentionDays: settings.historyDays)
-        history =
-          try storage?.history(
-            since: Date().addingTimeInterval(-86400 * Double(settings.historyDays))) ?? []
+        loadHistory()
       } catch { self.error = error.localizedDescription }
     }
     onUpdate?()
   }
+  func loadHistory() {
+    do {
+      history = try storage?.history(
+        since: Date().addingTimeInterval(-3600 * Double(historyHours))) ?? []
+    } catch { self.error = error.localizedDescription }
+  }
+
   var trayTitle: String {
     var parts: [String] = []
     if settings.showTemperature {

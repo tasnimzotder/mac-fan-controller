@@ -2,11 +2,12 @@
 <h1 align="center">Mac Fan Controller</h1>
 <p align="center">Native cooling controls, right in your Mac's menu bar.</p>
 
-SwiftUI screens in an AppKit popover, with no Dock icon. The default is Apple automatic. Optional performance, balanced, quiet, and manual modes use a separate privileged helper. Settings and temperature/RPM history live in a local SQLite database.
+SwiftUI screens in an AppKit popover, with no Dock icon. The default is Apple automatic. Optional performance, balanced, quiet, turbo, and manual modes use a separate privileged helper. Settings and temperature/RPM history live in a local SQLite database.
 
 - Configurable temperature and fan RPM in the menu bar, including both fans.
 - Independent manual sliders or synchronized control relative to each fan's range.
-- Performance cooling with temperature curves, bounded trend lookahead, hysteresis, quick ramp-up, and gradual ramp-down.
+- Live PID diagnostics: gains, temperature error/rate, P/I/D contributions, demand, limits, and per-fan targets.
+- Performance cooling with temperature curves, filtered PID feedback with anti-windup, hysteresis, quick ramp-up, and gradual ramp-down.
 - Thermal-pressure/high-temperature override, helper heartbeat, and crash-recovery marker.
 - Temperature and fan-speed charts; 1, 7, or 30 days of history.
 - Launch at login through macOS Service Management.
@@ -66,6 +67,16 @@ hdiutil verify dist/MacFanController_v0.1.0-alpha_aarch64.dmg
 
 Hardware fan writes, helper authorization, crash recovery on actual fans, and launch-at-login behavior still require device-level validation. CI and tests cannot replace it.
 
+Quit Macs Fan Control before using a preset; concurrent controllers can overwrite the same firmware keys. For a bounded hardware check, quit the GUI and run the installed executable with `--verify-performance`. This actively controls the fans for twenty seconds, checks their modes and targets, then verifies Apple automatic mode and unlock release.
+
+Local rebuilds can set `MFC_BUILD_NUMBER` to a distinct numeric bundle version when macOS retains a previous helper registration. With the GUI closed and fans already automatic, `--repair-helper` refreshes that registration; macOS may require background-item approval again.
+
+`--verify-presets` performs a bounded live check of Quiet, Balanced, Performance, and Turbo, then restores Apple automatic. History range buttons change only the displayed period; Keep history controls retention. Charts label units, preserve sampling gaps, and show exact readings on hover.
+
 ## License
 
 MIT. Existing implementations were consulted for protocol behavior and architecture, as recorded in the research note; their code is not bundled.
+
+### Safe local app updates
+
+Quit the GUI and run the **installed** app with `--prepare-update` before replacing its bundle. This verifies Apple automatic state and awaits helper unregistration. After installing, run the installed app with `--repair-helper` as the logged-in user; approve macOS background-item prompts if required. Development and backup bundles cannot manage helper/login-item registration, preventing them from replacing the installed app's BTM association.

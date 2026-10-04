@@ -181,31 +181,65 @@ public final class SMC {
         throw FanError("Fan-control acquisition deadline expired before target write.")
       }
       try writeNumber("F\(fan.id)Tg", effectiveTarget)
-      guard let actual = number("F\(fan.id)Tg"), abs(actual - effectiveTarget) < 100 else {
-        throw FanError("Fan target readback failed.")
-      }
+      try FanReadback.wait(
+        deadline: deadline + 2, cancelled: controlCancelled,
+        matches: {
+          guard let actual = self.number("F\(fan.id)Tg") else { return false }
+          return abs(actual - effectiveTarget) < 100 && self.number(key) == 1
+        }, failure: {
+          "Fan \(fan.id + 1) target readback failed: expected \(effectiveTarget), got \(self.number("F\(fan.id)Tg") ?? -1)."
+        })
     }
   }
   public func restoreAutomatic() throws {
-    guard let count = number("FNum"), count.isFinite, (0...9).contains(count) else {
+    guard let count = number("FNum"), count.isFinite, (0...9).contains(count),
+      count == count.rounded() else {
       throw FanError("Cannot restore: fan count unavailable.")
     }
     var errors: [String] = []
+    let unlockWasReadable = number("Ftst") != nil
+    let readableTargets = (0..<Int(count)).filter { number("F\($0)Tg") != nil }
     for id in 0..<Int(count) {
       do {
         let key = modeKey(id)
         if number(key) == 1 { try writeNumber(key, 0) }
-        guard let mode = number(key), mode == 0 || mode == 3 else {
-          throw FanError("Fan \(id+1) automatic-mode readback failed.")
-        }
-        // Firmware automatic mode ignores the forced target; clear it after releasing mode.
-        if let target = number("F\(id)Tg"), target != 0 { try writeNumber("F\(id)Tg", 0) }
       } catch { errors.append(error.localizedDescription) }
     }
     if number("Ftst") == 1 {
       do { try writeNumber("Ftst", 0) } catch { errors.append(error.localizedDescription) }
     }
-    if number("Ftst") == 1 { errors.append("Thermal-manager unlock is still held.") }
-    guard errors.isEmpty else { throw FanError(errors.joined(separator: " ")) }
+    // Mode and unlock writes settle asynchronously. Release every override before
+    // checking, so the thermal manager can finish handing control back to firmware.
+    let deadline = ProcessInfo.processInfo.systemUptime + 4
+    try FanReadback.wait(
+      deadline: deadline,
+      matches: {
+        (0..<Int(count)).allSatisfy { id in
+          guard let mode = self.number(self.modeKey(id)), mode == 0 || mode == 3 else {
+            return false
+          }
+          return true
+      } && (unlockWasReadable ? self.number("Ftst") == 0 : self.number("Ftst") != 1)
+      }, failure: {
+        var failures = errors
+        for id in 0..<Int(count) {
+          if ![0.0, 3.0].contains(self.number(self.modeKey(id)) ?? -1) {
+            failures.append("Fan \(id + 1) automatic-mode readback failed.")
+          }
+        }
+        if self.number("Ftst") == 1 { failures.append("Thermal-manager unlock is still held.") }
+        return failures.isEmpty ? "Automatic-mode verification timed out." : failures.joined(separator: " ")
+      })
+    // Never request zero RPM while manual mode is still settling.
+    for id in 0..<Int(count) {
+      if let target = number("F\(id)Tg"), target != 0 {
+        try writeNumber("F\(id)Tg", 0)
+      }
+    }
+    try FanReadback.wait(deadline: deadline, matches: {
+      readableTargets.allSatisfy { id in
+        self.number("F\(id)Tg") == 0
+      }
+    }, failure: { "Forced fan target clearing did not settle." })
   }
 }

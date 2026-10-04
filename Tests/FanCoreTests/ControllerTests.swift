@@ -3,6 +3,75 @@ import XCTest
 @testable import FanCore
 
 final class ControllerTests: XCTestCase {
+  func testIdlePresetsRequestDifferentSpeeds() throws {
+    let date = Date()
+    var results: [ControlMode: [Int: Double]] = [:]
+    for mode in [ControlMode.quiet, .balanced, .performance] {
+      var controller = FanController()
+      results[mode] = try XCTUnwrap(controller.targets(sample(43, at: date), mode: mode, now: date))
+    }
+    for fan in fans {
+      XCTAssertGreaterThan(results[.performance]![fan.id]!, results[.balanced]![fan.id]!)
+      XCTAssertGreaterThan(results[.balanced]![fan.id]!, results[.quiet]![fan.id]!)
+    }
+  }
+  func testTurboImmediatelyUsesEachFansMaximum() throws {
+    var controller = FanController()
+    let date = Date()
+    let targets = try XCTUnwrap(controller.targets(sample(40, at: date), mode: .turbo, now: date))
+    for fan in fans { XCTAssertEqual(targets[fan.id], fan.maximum) }
+    let later = date.addingTimeInterval(1)
+    let quiet = try XCTUnwrap(controller.targets(sample(40, at: later), mode: .quiet, now: later))
+    for fan in fans { XCTAssertEqual(quiet[fan.id], fan.minimum) }
+  }
+  func testTurboStillRejectsMissingTemperatureReadings() {
+    var controller = FanController()
+    XCTAssertThrowsError(try controller.targets(Snapshot(fans: fans, sensors: []), mode: .turbo))
+  }
+
+  func testPresetChangeClearsAccumulatedFeedback() throws {
+    let start = Date()
+    var warm = FanController()
+    for second in 0..<90 {
+      let date = start.addingTimeInterval(Double(second))
+      _ = try warm.targets(sample(77, at: date), mode: .balanced, now: date)
+    }
+    let date = start.addingTimeInterval(90)
+    let switched = try warm.targets(sample(77, at: date), mode: .quiet, now: date)
+    var fresh = FanController()
+    let expected = try fresh.targets(sample(77, at: date), mode: .quiet, now: date)
+    XCTAssertEqual(switched, expected)
+  }
+
+  func testSyntheticThermalPlantStaysBoundedAndPresetsSeparate() throws {
+    // Deliberately simple first-order plant; a regression model, not Mac calibration.
+    var finalTemperatures: [ControlMode: Double] = [:]
+    for mode in [ControlMode.performance, .balanced, .quiet] {
+      var controller = FanController()
+      var temperature = 45.0
+      var rpm = fans[0].minimum
+      let start = Date()
+      var settled: [Double] = []
+      for second in 0..<900 {
+        let date = start.addingTimeInterval(Double(second))
+        let fan = Fan(id: 0, rpm: rpm, minimum: fans[0].minimum, maximum: fans[0].maximum)
+        let reading = Snapshot(date: date, fans: [fan], sensors: [Sensor(id: "CPU", temperature: temperature)])
+        let targets = try XCTUnwrap(controller.targets(reading, mode: mode, now: date))
+        let target = try XCTUnwrap(targets[0])
+        XCTAssertTrue((fan.minimum...fan.maximum).contains(target))
+        rpm += (target - rpm) * (1 - exp(-1.0 / 2))
+        let fraction = (rpm - fan.minimum) / (fan.maximum - fan.minimum)
+        temperature += 2 - (0.02 + 0.05 * fraction) * (temperature - 30)
+        XCTAssertLessThan(temperature, 95)
+        if second >= 800 { settled.append(temperature) }
+      }
+      XCTAssertLessThan(settled.max()! - settled.min()!, 3)
+      finalTemperatures[mode] = temperature
+    }
+    XCTAssertLessThan(finalTemperatures[.performance]!, finalTemperatures[.balanced]!)
+    XCTAssertLessThan(finalTemperatures[.balanced]!, finalTemperatures[.quiet]!)
+  }
+
   private let fans = [
     Fan(id: 0, rpm: 2000, minimum: 1350, maximum: 5349),
     Fan(id: 1, rpm: 2000, minimum: 1458, maximum: 5777),
@@ -27,7 +96,7 @@ final class ControllerTests: XCTestCase {
     }
     XCTAssertEqual(FanController.fraction(temperature: 80, mode: .performance), 1)
     XCTAssertEqual(
-      FanController.fraction(temperature: 55, mode: .performance), 0.325, accuracy: 0.0001)
+      FanController.fraction(temperature: 55, mode: .performance), 0.425, accuracy: 0.0001)
   }
   func testStartupRampIsBoundedAndDifferentFanRangesAreRespected() throws {
     var c = FanController()

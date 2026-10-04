@@ -1,6 +1,7 @@
 import Darwin
 import FanCore
 import Foundation
+import MachO
 import OSLog
 
 final class Helper: NSObject, NSXPCListenerDelegate, FanHelperProtocol {
@@ -106,7 +107,16 @@ do {
     })
   let delegate = Helper(session: session, cancellation: cancellation)
   let listener = NSXPCListener(machServiceName: helperLabel)
-  let executable = URL(fileURLWithPath: CommandLine.arguments[0]).deletingLastPathComponent()
+  // launchd may supply a relative argv[0] for a BundleProgram.
+  // Resolve the loaded executable instead of interpreting it against the daemon's cwd.
+  var pathSize: UInt32 = 0
+  _ = _NSGetExecutablePath(nil, &pathSize)
+  var executablePath = [CChar](repeating: 0, count: Int(pathSize))
+  guard _NSGetExecutablePath(&executablePath, &pathSize) == 0 else {
+    throw FanError("Cannot resolve helper executable path.")
+  }
+  let executable = URL(fileURLWithPath: String(cString: executablePath))
+    .resolvingSymlinksInPath().deletingLastPathComponent()
     .appendingPathComponent("mac-fan-controller")
   listener.setConnectionCodeSigningRequirement(try signingRequirement(for: executable))
   listener.delegate = delegate
@@ -129,6 +139,8 @@ do {
   listener.resume()
   withExtendedLifetime((delegate, termination, interrupt)) { RunLoop.current.run() }
 } catch {
+  Logger(subsystem: "com.tasnimzotder.mac-fan-controller", category: "helper")
+    .error("Helper startup failed: \(error.localizedDescription, privacy: .public)")
   fputs("\(error.localizedDescription)\n", stderr)
   exit(1)
 }

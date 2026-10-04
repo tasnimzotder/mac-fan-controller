@@ -2,7 +2,7 @@ import Foundation
 
 public let helperLabel = "com.tasnimzotder.mac-fan-controller.helper"
 public enum ControlMode: String, Codable, CaseIterable {
-  case automatic, performance, balanced, quiet, manual
+  case automatic, performance, balanced, quiet, turbo, manual
   public var title: String { self == .automatic ? "Apple automatic" : rawValue.capitalized }
 }
 public struct Fan: Codable, Identifiable, Equatable {
@@ -71,17 +71,46 @@ public struct HistoryPoint: Identifiable {
 public struct HelperRequest: Codable {
   public var mode: ControlMode
   public var fractions: [Double]
-  public init(mode: ControlMode, fractions: [Double] = []) {
+  public var statusOnly: Bool?
+  public init(mode: ControlMode, fractions: [Double] = [], statusOnly: Bool? = nil) {
     self.mode = mode
     self.fractions = fractions
+    self.statusOnly = statusOnly
   }
 }
+/// One actual helper control iteration; fractions are normalized to each fan's range.
+public struct PIDTelemetry: Codable, Equatable {
+  public var date: Date
+  public var mode: ControlMode
+  public var rawTemperature: Double
+  public var temperature: Double
+  public var setpoint: Double
+  public var error: Double
+  public var sampleInterval: Double
+  public var kp: Double
+  public var ki: Double
+  public var kd: Double
+  public var proportional: Double
+  public var integral: Double
+  public var derivative: Double
+  public var temperatureRate: Double
+  public var baseline: Double
+  public var correction: Double
+  public var demand: Double
+  public var appliedTargets: [Int: Double]
+  public var integrationLimited: Bool
+  public var outputLimited: Bool
+  public var emergency: Bool
+}
+
 public struct HelperReply: Codable {
   public var mode: ControlMode
   public var error: String?
-  public init(mode: ControlMode, error: String? = nil) {
+  public var pid: PIDTelemetry?
+  public init(mode: ControlMode, error: String? = nil, pid: PIDTelemetry? = nil) {
     self.mode = mode
     self.error = error
+    self.pid = pid
   }
 }
 @objc public protocol FanHelperProtocol {
