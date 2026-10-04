@@ -62,3 +62,8 @@ A fanless M2 MacBook Air on macOS 27 was available during development. It verifi
 ## Live PID readings
 
 The helper returns an optional PID snapshot with each control/status reply. It captures the actual filtered/raw temperature, setpoint, elapsed interval, gains, error, filtered temperature rate, P/I/D contributions, curve fraction, clamped correction, pre-ramp demand, post-ramp targets, and limiting/emergency state from the same control iteration. The UI refreshes with the normal two-second heartbeat, hides readings older than six seconds or from another mode, and clears them after control errors/restoration. Automatic, Turbo, and manual modes report PID inactive; demo mode does not pretend to have live helper readings. Values are current diagnostics, not additional persisted history.
+
+
+## Removal with an unreachable helper
+
+Homebrew calls the installed app with `--unregister-helper`. The command waits for the GUI to finish quitting, then can independently verify fan count, every automatic mode key, released Ftst, and valid target/max readbacks. This allows safe removal when stale launchd/BTM registration prevents XPC communication. In automatic mode, macOS may write its own target RPM; nonzero targets within hardware bounds are valid once ownership keys confirm release. Missing or invalid readings, manual mode, and held unlocks do not qualify. Unsupported unlock keys retain the authenticated-helper recovery path. XPC error/timeout callbacks also retry the read-only proof and complete only once; removal failures retain the registration/watchdog.
