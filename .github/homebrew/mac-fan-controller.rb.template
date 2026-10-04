@@ -1,0 +1,36 @@
+# typed: strict
+# frozen_string_literal: true
+
+cask "mac-fan-controller" do
+  version "{{VERSION}}"
+  sha256 "{{SHA256}}"
+
+  url "https://github.com/{{REPOSITORY}}/releases/download/v#{version}/MacFanController_v#{version}_aarch64.dmg"
+  name "Mac Fan Controller"
+  desc "Native menu bar fan control and temperature monitoring for MacBook Pro"
+  homepage "https://github.com/{{REPOSITORY}}"
+
+  livecheck do
+    url :url
+    strategy :github_latest
+  end
+
+  depends_on arch: :arm64
+  depends_on macos: ">= :ventura"
+
+  app "Mac Fan Controller.app"
+
+  uninstall quit:   "com.tasnimzotder.mac-fan-controller",
+            script: {
+              executable: "#{appdir}/Mac Fan Controller.app/Contents/MacOS/mac-fan-controller",
+              args:       ["--unregister-helper"],
+              sudo:       false,
+            }
+
+  zap trash: "~/Library/Application Support/Mac Fan Controller"
+
+  caveats <<~EOS
+    Enable the fan-control helper in the app's Settings and approve it in macOS.
+    Before uninstalling, choose Apple automatic and remove the helper in Settings.
+  EOS
+end
