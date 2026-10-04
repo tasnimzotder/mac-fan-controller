@@ -43,6 +43,7 @@ The build and tap jobs have read-only source-repository permissions; only the pu
 - If publication fails before creating a release, rerun that failed job using the retained artifacts.
 - If a release was created but the job failed afterward, inspect the published release and its assets before retrying. `gh release create` intentionally fails if the release already exists, instead of replacing public assets silently.
 - If the tap job fails (including a missing token), the GitHub release remains available. Configure/fix the token or tap policy, then rerun **only the failed tap job**. It reuses the original artifacts and verifies the public DMG before writing.
+- To use updated workflow logic for an already published release, dispatch `Release` with its tag and `tap_only=true`. This skips building and publication, verifies the published DMG against its metadata, manifest, and cask, and updates only the tap. It preserves the release assets and normalizes the older equivalent Ventura dependency syntax.
 - Rebuilding a DMG can produce a different checksum. Do not replace a published asset under the same tag with a fresh build while retaining the old cask.
 
 To regenerate metadata locally:
